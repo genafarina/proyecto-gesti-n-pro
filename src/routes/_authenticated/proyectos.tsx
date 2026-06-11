@@ -82,12 +82,13 @@ function ProyectosPage() {
         notes: p.notes || null,
       };
       if (p.id) {
-        const { error } = await supabase.from("projects").update(payload).eq("id", p.id);
+        const { error } = await supabase.from("projects").update(payload as never).eq("id", p.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("projects").insert(payload);
+        const { error } = await supabase.from("projects").insert(payload as never);
         if (error) throw error;
       }
+
     },
     onSuccess: () => {
       toast.success("Proyecto guardado");
