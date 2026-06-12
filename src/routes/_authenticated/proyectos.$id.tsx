@@ -125,7 +125,25 @@ function ProjectDetail() {
         <Link to="/proyectos" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Volver a proyectos
         </Link>
+        <Button variant="outline" size="sm" onClick={() => setConfirmDelete(true)} className="text-destructive hover:text-destructive">
+          <Trash2 className="h-4 w-4 mr-1" /> Eliminar proyecto
+        </Button>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar proyecto</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán también todas sus etapas, tareas, gastos y cobros. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => delProject.mutate()}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardContent className="p-4 md:p-6">
