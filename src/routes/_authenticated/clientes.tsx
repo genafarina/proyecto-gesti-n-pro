@@ -165,6 +165,23 @@ function ClientesPage() {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar cliente</AlertDialogTitle>
+            <AlertDialogDescription>
+              {toDelete && (projectCounts?.[toDelete.id] ?? 0) > 0
+                ? "Este cliente tiene proyectos asociados. Para eliminarlo se eliminarán también sus proyectos y la información vinculada (etapas, tareas, gastos y cobros). ¿Deseás continuar?"
+                : "¿Confirmás eliminar este cliente? Esta acción no se puede deshacer."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => toDelete && del.mutate(toDelete.id!)}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
