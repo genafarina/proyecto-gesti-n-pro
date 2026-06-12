@@ -45,6 +45,7 @@ function ProyectosPage() {
   const [editing, setEditing] = useState<Partial<Project> | null>(null);
   const [filterClient, setFilterClient] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [toDelete, setToDelete] = useState<Project | null>(null);
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects"],
