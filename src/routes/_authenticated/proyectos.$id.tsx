@@ -1,6 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ExpenseForm } from "./gastos";
+import { CollectionForm } from "./cobros";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +38,25 @@ export const Route = createFileRoute("/_authenticated/proyectos/$id")({
 
 function ProjectDetail() {
   const { id } = Route.useParams();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const delProject = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("projects").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Proyecto eliminado correctamente.");
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["all-expenses"] });
+      qc.invalidateQueries({ queryKey: ["all-collections"] });
+      navigate({ to: "/proyectos" });
+    },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setConfirmDelete(false); },
+  });
   const { data: project } = useQuery({
     queryKey: ["project", id],
     queryFn: async () => {
@@ -100,7 +125,25 @@ function ProjectDetail() {
         <Link to="/proyectos" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Volver a proyectos
         </Link>
+        <Button variant="outline" size="sm" onClick={() => setConfirmDelete(true)} className="text-destructive hover:text-destructive">
+          <Trash2 className="h-4 w-4 mr-1" /> Eliminar proyecto
+        </Button>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar proyecto</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán también todas sus etapas, tareas, gastos y cobros. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => delProject.mutate()}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardContent className="p-4 md:p-6">
@@ -421,29 +464,49 @@ function TasksSection({ projectId, tasks, stages }: { projectId: string; tasks: 
 
 /* ---------- Gastos ---------- */
 type Expense = {
-  id: string; project_id: string; expense_date: string; category: string; subcategory: string | null;
+  id?: string; project_id: string; expense_date: string; category: string; subcategory: string | null;
   description: string | null; supplier: string | null; amount: number | string;
-  payment_method: string; notes: string | null;
+  payment_method: string; receipt_url: string | null; notes: string | null;
 };
 
 function ExpensesSection({ projectId, expenses, currency }: { projectId: string; expenses: Expense[]; currency: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Expense> | null>(null);
+  const [toDelete, setToDelete] = useState<string | null>(null);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["expenses", projectId] });
+    qc.invalidateQueries({ queryKey: ["all-expenses"] });
+    qc.invalidateQueries({ queryKey: ["dashboard"] });
+    qc.invalidateQueries({ queryKey: ["projects"] });
+  };
+
   const save = useMutation({
     mutationFn: async (x: Partial<Expense>) => {
+      if (!x.expense_date) throw new Error("La fecha es obligatoria");
+      if (!x.category) throw new Error("La categoría es obligatoria");
+      if (!x.payment_method) throw new Error("El método de pago es obligatorio");
+      if (!x.description?.trim()) throw new Error("La descripción es obligatoria");
       const amt = Number(x.amount ?? 0);
-      if (amt < 0) throw new Error("Monto inválido");
+      if (!Number.isFinite(amt) || amt < 0) throw new Error("Monto inválido");
       const payload = {
-        project_id: projectId, expense_date: x.expense_date || new Date().toISOString().slice(0, 10),
-        category: (x.category ?? "other"), description: x.description || null,
-        supplier: x.supplier || null, amount: amt, payment_method: (x.payment_method ?? "cash"), notes: x.notes || null,
+        project_id: projectId, expense_date: x.expense_date, category: x.category,
+        subcategory: x.subcategory || null, description: x.description.trim(),
+        supplier: x.supplier || null, amount: amt, payment_method: x.payment_method,
+        receipt_url: x.receipt_url || null, notes: x.notes || null,
       };
       if (x.id) { const { error } = await supabase.from("project_expenses").update(payload as never).eq("id", x.id); if (error) throw error; }
       else { const { error } = await supabase.from("project_expenses").insert(payload as never); if (error) throw error; }
     },
-    onSuccess: () => { toast.success("Gasto guardado"); qc.invalidateQueries({ queryKey: ["expenses", projectId] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); qc.invalidateQueries({ queryKey: ["all-expenses"] }); setOpen(false); setEditing(null); },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: (_d, v) => { toast.success(v.id ? "Gasto actualizado correctamente." : "Gasto creado correctamente."); invalidate(); setOpen(false); setEditing(null); },
+    onError: (e: Error) => toast.error(e.message || "No se pudo guardar el registro."),
+  });
+
+  const del = useMutation({
+    mutationFn: async (xid: string) => { const { error } = await supabase.from("project_expenses").delete().eq("id", xid); if (error) throw error; },
+    onSuccess: () => { toast.success("Gasto eliminado correctamente."); invalidate(); setToDelete(null); },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setToDelete(null); },
   });
 
   const total = totalSpent(expenses);
@@ -456,33 +519,13 @@ function ExpensesSection({ projectId, expenses, currency }: { projectId: string;
           <div className="text-sm text-muted-foreground">Total: {formatARS(total, currency)}</div>
         </div>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setEditing(null); }}>
-          <DialogTrigger asChild><Button size="sm" onClick={() => setEditing({ expense_date: new Date().toISOString().slice(0, 10), category: "materials", payment_method: "cash", amount: 0 })}><Plus className="h-4 w-4 mr-1" />Nuevo gasto</Button></DialogTrigger>
-          {editing && (
-            <DialogContent>
-              <DialogHeader><DialogTitle>{editing.id ? "Editar gasto" : "Nuevo gasto"}</DialogTitle></DialogHeader>
-              <form onSubmit={(e) => { e.preventDefault(); save.mutate(editing); }} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Fecha"><Input type="date" value={editing.expense_date ?? ""} onChange={(e) => setEditing({ ...editing, expense_date: e.target.value })} required /></Field>
-                  <Field label="Monto *"><Input type="number" min={0} step="0.01" value={String(editing.amount ?? 0)} onChange={(e) => setEditing({ ...editing, amount: e.target.value })} required /></Field>
-                  <Field label="Categoría">
-                    <Select value={editing.category ?? "other"} onValueChange={(v) => setEditing({ ...editing, category: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{Object.entries(expenseCategoryLabel).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Método de pago">
-                    <Select value={editing.payment_method ?? "cash"} onValueChange={(v) => setEditing({ ...editing, payment_method: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{Object.entries(paymentMethodLabel).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <Field label="Proveedor"><Input value={editing.supplier ?? ""} onChange={(e) => setEditing({ ...editing, supplier: e.target.value })} /></Field>
-                <Field label="Descripción"><Input value={editing.description ?? ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
-                <DialogFooter><Button type="submit" disabled={save.isPending}>Guardar</Button></DialogFooter>
-              </form>
-            </DialogContent>
-          )}
+          <DialogTrigger asChild>
+            <Button size="sm" onClick={() => setEditing({
+              project_id: projectId, expense_date: new Date().toISOString().slice(0, 10),
+              category: "materials", payment_method: "cash", amount: 0,
+            })}><Plus className="h-4 w-4 mr-1" />Agregar gasto</Button>
+          </DialogTrigger>
+          <ExpenseForm editing={editing} setEditing={setEditing} projects={[]} onSubmit={(x) => save.mutate(x)} saving={save.isPending} lockProject />
         </Dialog>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -501,19 +544,34 @@ function ExpensesSection({ projectId, expenses, currency }: { projectId: string;
                 <TableCell>{x.supplier ?? "—"}</TableCell>
                 <TableCell>{paymentMethodLabel[x.payment_method]}</TableCell>
                 <TableCell className="text-right">{formatARS(Number(x.amount), currency)}</TableCell>
-                <TableCell><Button variant="ghost" size="icon" onClick={() => { setEditing(x); setOpen(true); }}><Pencil className="h-4 w-4" /></Button></TableCell>
+                <TableCell className="flex justify-end gap-1">
+                  <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(x); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(x.id!)}><Trash2 className="h-4 w-4" /></Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </CardContent>
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar gasto</AlertDialogTitle>
+            <AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => toDelete && del.mutate(toDelete)}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
 
 /* ---------- Cobros ---------- */
 type Collection = {
-  id: string; project_id: string; client_id: string; collection_date: string;
+  id?: string; project_id: string; client_id: string; collection_date: string;
   amount: number | string; payment_method: string; description: string | null; notes: string | null;
 };
 
@@ -521,19 +579,37 @@ function CollectionsSection({ projectId, clientId, collections, currency }: { pr
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Collection> | null>(null);
+  const [toDelete, setToDelete] = useState<string | null>(null);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["collections", projectId] });
+    qc.invalidateQueries({ queryKey: ["all-collections"] });
+    qc.invalidateQueries({ queryKey: ["dashboard"] });
+    qc.invalidateQueries({ queryKey: ["projects"] });
+  };
+
   const save = useMutation({
     mutationFn: async (c: Partial<Collection>) => {
+      if (!c.collection_date) throw new Error("La fecha es obligatoria");
+      if (!c.payment_method) throw new Error("El método de pago es obligatorio");
       const amt = Number(c.amount ?? 0);
-      if (amt < 0) throw new Error("Monto inválido");
+      if (!Number.isFinite(amt) || amt < 0) throw new Error("Monto inválido");
       const payload = {
-        project_id: projectId, client_id: clientId, collection_date: c.collection_date || new Date().toISOString().slice(0, 10),
-        amount: amt, payment_method: (c.payment_method ?? "bank_transfer"), description: c.description || null, notes: c.notes || null,
+        project_id: projectId, client_id: clientId, collection_date: c.collection_date,
+        amount: amt, payment_method: c.payment_method,
+        description: c.description || null, notes: c.notes || null,
       };
       if (c.id) { const { error } = await supabase.from("project_collections").update(payload as never).eq("id", c.id); if (error) throw error; }
       else { const { error } = await supabase.from("project_collections").insert(payload as never); if (error) throw error; }
     },
-    onSuccess: () => { toast.success("Cobro guardado"); qc.invalidateQueries({ queryKey: ["collections", projectId] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); qc.invalidateQueries({ queryKey: ["all-collections"] }); setOpen(false); setEditing(null); },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: (_d, v) => { toast.success(v.id ? "Cobro actualizado correctamente." : "Cobro creado correctamente."); invalidate(); setOpen(false); setEditing(null); },
+    onError: (e: Error) => toast.error(e.message || "No se pudo guardar el registro."),
+  });
+
+  const del = useMutation({
+    mutationFn: async (cid: string) => { const { error } = await supabase.from("project_collections").delete().eq("id", cid); if (error) throw error; },
+    onSuccess: () => { toast.success("Cobro eliminado correctamente."); invalidate(); setToDelete(null); },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setToDelete(null); },
   });
 
   const total = totalCollected(collections);
@@ -546,31 +622,22 @@ function CollectionsSection({ projectId, clientId, collections, currency }: { pr
           <div className="text-sm text-muted-foreground">Total: {formatARS(total, currency)}</div>
         </div>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setEditing(null); }}>
-          <DialogTrigger asChild><Button size="sm" onClick={() => setEditing({ collection_date: new Date().toISOString().slice(0, 10), payment_method: "bank_transfer", amount: 0 })}><Plus className="h-4 w-4 mr-1" />Nuevo cobro</Button></DialogTrigger>
-          {editing && (
-            <DialogContent>
-              <DialogHeader><DialogTitle>{editing.id ? "Editar cobro" : "Nuevo cobro"}</DialogTitle></DialogHeader>
-              <form onSubmit={(e) => { e.preventDefault(); save.mutate(editing); }} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Fecha"><Input type="date" value={editing.collection_date ?? ""} onChange={(e) => setEditing({ ...editing, collection_date: e.target.value })} required /></Field>
-                  <Field label="Monto *"><Input type="number" min={0} step="0.01" value={String(editing.amount ?? 0)} onChange={(e) => setEditing({ ...editing, amount: e.target.value })} required /></Field>
-                  <Field label="Método de pago">
-                    <Select value={editing.payment_method ?? "bank_transfer"} onValueChange={(v) => setEditing({ ...editing, payment_method: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{Object.entries(paymentMethodLabel).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <Field label="Descripción"><Input value={editing.description ?? ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
-                <DialogFooter><Button type="submit" disabled={save.isPending}>Guardar</Button></DialogFooter>
-              </form>
-            </DialogContent>
-          )}
+          <DialogTrigger asChild>
+            <Button size="sm" onClick={() => setEditing({
+              project_id: projectId, client_id: clientId,
+              collection_date: new Date().toISOString().slice(0, 10),
+              payment_method: "bank_transfer", amount: 0,
+            })}><Plus className="h-4 w-4 mr-1" />Agregar cobro</Button>
+          </DialogTrigger>
+          <CollectionForm editing={editing} setEditing={setEditing} projects={[]} onSubmit={(c) => save.mutate(c)} saving={save.isPending} lockProject />
         </Dialog>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
-          <TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Descripción</TableHead><TableHead>Método</TableHead><TableHead className="text-right">Monto</TableHead><TableHead></TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow>
+            <TableHead>Fecha</TableHead><TableHead>Descripción</TableHead><TableHead>Método</TableHead>
+            <TableHead className="text-right">Monto</TableHead><TableHead></TableHead>
+          </TableRow></TableHeader>
           <TableBody>
             {collections.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Sin cobros.</TableCell></TableRow>}
             {collections.map((c) => (
@@ -579,12 +646,27 @@ function CollectionsSection({ projectId, clientId, collections, currency }: { pr
                 <TableCell>{c.description ?? "—"}</TableCell>
                 <TableCell>{paymentMethodLabel[c.payment_method]}</TableCell>
                 <TableCell className="text-right">{formatARS(Number(c.amount), currency)}</TableCell>
-                <TableCell><Button variant="ghost" size="icon" onClick={() => { setEditing(c); setOpen(true); }}><Pencil className="h-4 w-4" /></Button></TableCell>
+                <TableCell className="flex justify-end gap-1">
+                  <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(c); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(c.id!)}><Trash2 className="h-4 w-4" /></Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </CardContent>
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar cobro</AlertDialogTitle>
+            <AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => toDelete && del.mutate(toDelete)}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

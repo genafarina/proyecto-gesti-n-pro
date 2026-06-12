@@ -9,9 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Search } from "lucide-react";
+import { Plus, Pencil, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { clientStatusLabel } from "@/lib/labels";
 
@@ -32,6 +36,7 @@ function ClientesPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Client> | null>(null);
+  const [toDelete, setToDelete] = useState<Client | null>(null);
 
   const { data: clients = [] } = useQuery({
     queryKey: ["clients"],
@@ -74,7 +79,25 @@ function ClientesPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false); setEditing(null);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message || "No se pudo guardar el registro."),
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("clients").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cliente eliminado correctamente.");
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["client-project-counts"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["all-expenses"] });
+      qc.invalidateQueries({ queryKey: ["all-collections"] });
+      setToDelete(null);
+    },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setToDelete(null); },
   });
 
   const filtered = clients.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
@@ -127,9 +150,12 @@ function ClientesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">{projectCounts?.[c.id] ?? 0}</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="icon" onClick={() => { setEditing(c); setOpen(true); }}>
+                    <TableCell className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(c); setOpen(true); }}>
                         <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(c)}>
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -139,6 +165,23 @@ function ClientesPage() {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar cliente</AlertDialogTitle>
+            <AlertDialogDescription>
+              {toDelete && (projectCounts?.[toDelete.id] ?? 0) > 0
+                ? "Este cliente tiene proyectos asociados. Para eliminarlo se eliminarán también sus proyectos y la información vinculada (etapas, tareas, gastos y cobros). ¿Deseás continuar?"
+                : "¿Confirmás eliminar este cliente? Esta acción no se puede deshacer."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => toDelete && del.mutate(toDelete.id!)}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

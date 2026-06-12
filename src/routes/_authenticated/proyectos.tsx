@@ -9,10 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { projectStatusLabel, projectStatusVariant, currencyLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -41,6 +45,7 @@ function ProyectosPage() {
   const [editing, setEditing] = useState<Partial<Project> | null>(null);
   const [filterClient, setFilterClient] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [toDelete, setToDelete] = useState<Project | null>(null);
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects"],
@@ -96,7 +101,24 @@ function ProyectosPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false); setEditing(null);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message || "No se pudo guardar el registro."),
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("projects").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Proyecto eliminado correctamente.");
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["all-expenses"] });
+      qc.invalidateQueries({ queryKey: ["all-collections"] });
+      qc.invalidateQueries({ queryKey: ["client-project-counts"] });
+      setToDelete(null);
+    },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setToDelete(null); },
   });
 
   const filtered = projects.filter((p) =>
@@ -176,8 +198,9 @@ function ProyectosPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">{formatARS(Number(p.contracted_amount), p.currency)}</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon" onClick={() => { setEditing(p); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                      <TableCell className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(p); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(p)}><Trash2 className="h-4 w-4" /></Button>
                       </TableCell>
                     </TableRow>
                   );
@@ -187,6 +210,21 @@ function ProyectosPage() {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar proyecto</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán también todas sus etapas, tareas, gastos y cobros. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => toDelete && del.mutate(toDelete.id!)}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
