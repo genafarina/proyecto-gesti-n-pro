@@ -198,8 +198,9 @@ function ProyectosPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">{formatARS(Number(p.contracted_amount), p.currency)}</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon" onClick={() => { setEditing(p); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                      <TableCell className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(p); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(p)}><Trash2 className="h-4 w-4" /></Button>
                       </TableCell>
                     </TableRow>
                   );
