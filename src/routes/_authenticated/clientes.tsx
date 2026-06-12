@@ -36,6 +36,7 @@ function ClientesPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Client> | null>(null);
+  const [toDelete, setToDelete] = useState<Client | null>(null);
 
   const { data: clients = [] } = useQuery({
     queryKey: ["clients"],
