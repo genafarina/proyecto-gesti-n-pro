@@ -79,7 +79,25 @@ function ClientesPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false); setEditing(null);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message || "No se pudo guardar el registro."),
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("clients").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cliente eliminado correctamente.");
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["client-project-counts"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["all-expenses"] });
+      qc.invalidateQueries({ queryKey: ["all-collections"] });
+      setToDelete(null);
+    },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setToDelete(null); },
   });
 
   const filtered = clients.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
