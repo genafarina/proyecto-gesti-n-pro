@@ -38,6 +38,25 @@ export const Route = createFileRoute("/_authenticated/proyectos/$id")({
 
 function ProjectDetail() {
   const { id } = Route.useParams();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const delProject = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("projects").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Proyecto eliminado correctamente.");
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["all-expenses"] });
+      qc.invalidateQueries({ queryKey: ["all-collections"] });
+      navigate({ to: "/proyectos" });
+    },
+    onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setConfirmDelete(false); },
+  });
   const { data: project } = useQuery({
     queryKey: ["project", id],
     queryFn: async () => {
