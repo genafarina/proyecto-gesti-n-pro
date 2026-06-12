@@ -150,9 +150,12 @@ function ClientesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">{projectCounts?.[c.id] ?? 0}</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="icon" onClick={() => { setEditing(c); setOpen(true); }}>
+                    <TableCell className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(c); setOpen(true); }}>
                         <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(c)}>
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
