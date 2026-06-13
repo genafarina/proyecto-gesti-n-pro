@@ -18,7 +18,6 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatARS, formatDate, totalCollected } from "@/lib/finance";
 import { paymentMethodLabel } from "@/lib/labels";
-import { formatProjectLabel } from "@/lib/codes";
 
 export const Route = createFileRoute("/_authenticated/cobros")({ component: CobrosPage });
 
@@ -36,7 +35,7 @@ function CobrosPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects-min"],
-    queryFn: async () => (await supabase.from("projects").select("id,code,name,currency,client_id").order("name")).data ?? [],
+    queryFn: async () => (await supabase.from("projects").select("id,name,currency,client_id").order("name")).data ?? [],
   });
   const { data: clients = [] } = useQuery({
     queryKey: ["clients-min"],
@@ -124,7 +123,7 @@ function CobrosPage() {
           <SelectTrigger className="w-[240px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los proyectos</SelectItem>
-            {projects.map((p) => <SelectItem key={p.id} value={p.id}>{formatProjectLabel(p.code, p.name)}</SelectItem>)}
+            {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
           </SelectContent>
         </Select>
         <div className="overflow-x-auto">
@@ -139,13 +138,7 @@ function CobrosPage() {
               {filtered.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell>{formatDate(c.collection_date)}</TableCell>
-                  <TableCell>
-                    <Link to="/proyectos/$id" params={{ id: c.project_id }} className="hover:underline">
-                      {projMap[c.project_id]
-                        ? formatProjectLabel(projMap[c.project_id].code, projMap[c.project_id].name)
-                        : "—"}
-                    </Link>
-                  </TableCell>
+                  <TableCell><Link to="/proyectos/$id" params={{ id: c.project_id }} className="hover:underline">{projMap[c.project_id]?.name ?? "—"}</Link></TableCell>
                   <TableCell>{clientMap[c.client_id] ?? "—"}</TableCell>
                   <TableCell>{paymentMethodLabel[c.payment_method]}</TableCell>
                   <TableCell>{c.description ?? "—"}</TableCell>
@@ -182,7 +175,7 @@ export function CollectionForm({
 }: {
   editing: Partial<Collection> | null;
   setEditing: (c: Partial<Collection> | null) => void;
-  projects: { id: string; code: string; name: string; client_id: string; currency?: string }[];
+  projects: { id: string; name: string; client_id: string; currency?: string }[];
   onSubmit: (c: Partial<Collection>) => void;
   saving: boolean;
   lockProject?: boolean;
@@ -208,11 +201,7 @@ export function CollectionForm({
           <Field label="Proyecto *">
             <Select value={c.project_id ?? ""} onValueChange={(v) => set("project_id", v)}>
               <SelectTrigger><SelectValue placeholder="Seleccionar proyecto" /></SelectTrigger>
-              <SelectContent>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{formatProjectLabel(p.code, p.name)}</SelectItem>
-                ))}
-              </SelectContent>
+              <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
         )}

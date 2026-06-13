@@ -18,7 +18,6 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatARS, formatDate, totalSpent } from "@/lib/finance";
 import { expenseCategoryLabel, paymentMethodLabel } from "@/lib/labels";
-import { formatProjectLabel } from "@/lib/codes";
 
 export const Route = createFileRoute("/_authenticated/gastos")({ component: GastosPage });
 
@@ -38,7 +37,7 @@ function GastosPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects-min"],
-    queryFn: async () => (await supabase.from("projects").select("id,code,name,currency").order("name")).data ?? [],
+    queryFn: async () => (await supabase.from("projects").select("id,name,currency").order("name")).data ?? [],
   });
   const { data: expenses = [] } = useQuery({
     queryKey: ["all-expenses"],
@@ -121,7 +120,7 @@ function GastosPage() {
             <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los proyectos</SelectItem>
-              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{formatProjectLabel(p.code, p.name)}</SelectItem>)}
+              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={cat} onValueChange={setCat}>
@@ -144,13 +143,7 @@ function GastosPage() {
               {filtered.map((e) => (
                 <TableRow key={e.id}>
                   <TableCell>{formatDate(e.expense_date)}</TableCell>
-                  <TableCell>
-                    <Link to="/proyectos/$id" params={{ id: e.project_id }} className="hover:underline">
-                      {projMap[e.project_id]
-                        ? formatProjectLabel(projMap[e.project_id].code, projMap[e.project_id].name)
-                        : "—"}
-                    </Link>
-                  </TableCell>
+                  <TableCell><Link to="/proyectos/$id" params={{ id: e.project_id }} className="hover:underline">{projMap[e.project_id]?.name ?? "—"}</Link></TableCell>
                   <TableCell>{expenseCategoryLabel[e.category]}</TableCell>
                   <TableCell>{e.description ?? "—"}</TableCell>
                   <TableCell>{paymentMethodLabel[e.payment_method]}</TableCell>
@@ -187,7 +180,7 @@ export function ExpenseForm({
 }: {
   editing: Partial<Expense> | null;
   setEditing: (x: Partial<Expense> | null) => void;
-  projects: { id: string; code: string; name: string; currency?: string }[];
+  projects: { id: string; name: string; currency?: string }[];
   onSubmit: (x: Partial<Expense>) => void;
   saving: boolean;
   lockProject?: boolean;
@@ -203,11 +196,7 @@ export function ExpenseForm({
           <Field label="Proyecto *">
             <Select value={x.project_id ?? ""} onValueChange={(v) => set("project_id", v)}>
               <SelectTrigger><SelectValue placeholder="Seleccionar proyecto" /></SelectTrigger>
-              <SelectContent>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{formatProjectLabel(p.code, p.name)}</SelectItem>
-                ))}
-              </SelectContent>
+              <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
         )}

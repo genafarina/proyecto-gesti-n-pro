@@ -17,7 +17,6 @@ export type Database = {
       clients: {
         Row: {
           address: string | null
-          code: string
           contact_name: string | null
           created_at: string
           created_by: string | null
@@ -32,7 +31,6 @@ export type Database = {
         }
         Insert: {
           address?: string | null
-          code?: string
           contact_name?: string | null
           created_at?: string
           created_by?: string | null
@@ -47,7 +45,6 @@ export type Database = {
         }
         Update: {
           address?: string | null
-          code?: string
           contact_name?: string | null
           created_at?: string
           created_by?: string | null
@@ -326,7 +323,7 @@ export type Database = {
           actual_end_date: string | null
           actual_start_date: string | null
           client_id: string
-          code: string
+          code: string | null
           contracted_amount: number
           created_at: string
           created_by: string | null
@@ -340,7 +337,6 @@ export type Database = {
           notes: string | null
           planned_end_date: string | null
           planned_start_date: string | null
-          project_number: number
           status: Database["public"]["Enums"]["project_status"]
           updated_at: string
         }
@@ -348,7 +344,7 @@ export type Database = {
           actual_end_date?: string | null
           actual_start_date?: string | null
           client_id: string
-          code?: string
+          code?: string | null
           contracted_amount?: number
           created_at?: string
           created_by?: string | null
@@ -362,7 +358,6 @@ export type Database = {
           notes?: string | null
           planned_end_date?: string | null
           planned_start_date?: string | null
-          project_number?: number
           status?: Database["public"]["Enums"]["project_status"]
           updated_at?: string
         }
@@ -370,7 +365,7 @@ export type Database = {
           actual_end_date?: string | null
           actual_start_date?: string | null
           client_id?: string
-          code?: string
+          code?: string | null
           contracted_amount?: number
           created_at?: string
           created_by?: string | null
@@ -384,7 +379,6 @@ export type Database = {
           notes?: string | null
           planned_end_date?: string | null
           planned_start_date?: string | null
-          project_number?: number
           status?: Database["public"]["Enums"]["project_status"]
           updated_at?: string
         }

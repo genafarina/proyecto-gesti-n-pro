@@ -21,18 +21,13 @@ import { toast } from "sonner";
 import { projectStatusLabel, projectStatusVariant, currencyLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { formatARS, formatDate, isOverdueProject, projectProgress } from "@/lib/finance";
-import {
-  formatProjectCode,
-  getNextProjectNumber,
-  isDuplicateCodeError,
-} from "@/lib/codes";
 
 export const Route = createFileRoute("/_authenticated/proyectos")({
   component: ProyectosPage,
 });
 
 type Project = {
-  id: string; client_id: string; name: string; code: string; project_number: number; description: string | null;
+  id: string; client_id: string; name: string; code: string | null; description: string | null;
   status: string; planned_start_date: string | null; planned_end_date: string | null;
   actual_start_date: string | null; actual_end_date: string | null;
   estimated_amount: number | string; contracted_amount: number | string;
@@ -63,7 +58,7 @@ function ProyectosPage() {
   const { data: clients = [] } = useQuery({
     queryKey: ["clients-min"],
     queryFn: async () => {
-      const { data } = await supabase.from("clients").select("id,name,code").order("name");
+      const { data } = await supabase.from("clients").select("id,name").order("name");
       return data ?? [];
     },
   });
@@ -83,7 +78,7 @@ function ProyectosPage() {
       if (!p.client_id) throw new Error("Seleccioná un cliente");
       const num = (v: unknown) => Math.max(0, Number(v ?? 0));
       const payload = {
-        client_id: p.client_id, name: p.name.trim(),
+        client_id: p.client_id, name: p.name.trim(), code: p.code || null,
         description: p.description || null, status: (p.status ?? "quoted") as Project["status"],
         planned_start_date: p.planned_start_date || null, planned_end_date: p.planned_end_date || null,
         actual_start_date: p.actual_start_date || null, actual_end_date: p.actual_end_date || null,
@@ -93,23 +88,16 @@ function ProyectosPage() {
       };
       if (p.id) {
         const { error } = await supabase.from("projects").update(payload as never).eq("id", p.id);
-        if (error) {
-          if (isDuplicateCodeError(error)) throw new Error("No se pudo asignar un código único al proyecto");
-          throw error;
-        }
+        if (error) throw error;
       } else {
         const { error } = await supabase.from("projects").insert(payload as never);
-        if (error) {
-          if (isDuplicateCodeError(error)) throw new Error("No se pudo asignar un código único al proyecto");
-          throw error;
-        }
+        if (error) throw error;
       }
 
     },
     onSuccess: () => {
       toast.success("Proyecto guardado");
       qc.invalidateQueries({ queryKey: ["projects"] });
-      qc.invalidateQueries({ queryKey: ["projects-min"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false); setEditing(null);
     },
@@ -171,7 +159,6 @@ function ProyectosPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Código</TableHead>
                   <TableHead>Proyecto</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Estado</TableHead>
@@ -183,17 +170,17 @@ function ProyectosPage() {
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Sin proyectos.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin proyectos.</TableCell></TableRow>
                 )}
                 {filtered.map((p) => {
                   const progress = projectProgress(tasks.filter((t) => t.project_id === p.id));
                   const overdue = isOverdueProject(p);
                   return (
                     <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs font-medium">{p.code}</TableCell>
                       <TableCell className="font-medium">
                         <Link to="/proyectos/$id" params={{ id: p.id }} className="hover:underline">
                           {p.name}
+                          {p.code && <span className="ml-2 text-xs text-muted-foreground">{p.code}</span>}
                         </Link>
                       </TableCell>
                       <TableCell>{clientMap[p.client_id] ?? "—"}</TableCell>
@@ -247,24 +234,12 @@ function ProjectForm({
 }: {
   editing: Partial<Project> | null;
   setEditing: (p: Partial<Project> | null) => void;
-  clients: { id: string; name: string; code: string }[];
+  clients: { id: string; name: string }[];
   onSubmit: (p: Partial<Project>) => void;
   saving: boolean;
 }) {
-  const selectedClient = clients.find((client) => client.id === editing?.client_id);
-  const { data: nextProjectNumber, isLoading: loadingCode } = useQuery({
-    queryKey: ["next-project-number", editing?.client_id],
-    queryFn: () => getNextProjectNumber(editing!.client_id!),
-    enabled: Boolean(editing?.client_id && !editing?.id),
-  });
-
   if (!editing) return null;
   const p = editing;
-  const codePreview = p.id
-    ? p.code ?? ""
-    : selectedClient && nextProjectNumber
-      ? formatProjectCode(selectedClient.code, nextProjectNumber)
-      : "";
   const set = <K extends keyof Project>(k: K, v: Project[K] | string | null) => setEditing({ ...p, [k]: v as Project[K] });
   return (
     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -274,18 +249,11 @@ function ProjectForm({
           <Field label="Cliente *">
             <Select value={p.client_id ?? ""} onValueChange={(v) => set("client_id", v)}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cliente" /></SelectTrigger>
-              <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
           <Field label="Nombre del proyecto *"><Input value={p.name ?? ""} onChange={(e) => set("name", e.target.value)} required /></Field>
-          <Field label="Código del proyecto">
-            <Input
-              value={loadingCode ? "Calculando..." : codePreview}
-              placeholder={p.client_id ? "Calculando..." : "Seleccioná un cliente"}
-              className="font-mono"
-              readOnly
-            />
-          </Field>
+          <Field label="Código interno"><Input value={p.code ?? ""} onChange={(e) => set("code", e.target.value)} /></Field>
           <Field label="Estado">
             <Select value={p.status ?? "quoted"} onValueChange={(v) => set("status", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
