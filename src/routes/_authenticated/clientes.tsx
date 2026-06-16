@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,18 +18,19 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { clientStatusLabel } from "@/lib/labels";
+import { generateClientCode, resolveUniqueClientCode, sanitizeCode } from "@/lib/codes";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
 });
 
 type Client = {
-  id: string; name: string; tax_id: string | null; phone: string | null; email: string | null;
+  id: string; code: string; name: string; tax_id: string | null; phone: string | null; email: string | null;
   address: string | null; contact_name: string | null; notes: string | null;
   status: "active" | "inactive";
 };
 
-const empty: Partial<Client> = { name: "", status: "active" };
+const empty: Partial<Client> = { name: "", code: "", status: "active" };
 
 function ClientesPage() {
   const qc = useQueryClient();
@@ -60,7 +61,14 @@ function ClientesPage() {
   const save = useMutation({
     mutationFn: async (c: Partial<Client>) => {
       if (!c.name?.trim()) throw new Error("El nombre es obligatorio");
+      let code = sanitizeCode(c.code ?? "");
+      if (!code) code = resolveUniqueClientCode(generateClientCode(c.name), clients.filter((x) => x.id !== c.id).map((x) => x.code));
+      if (!code) throw new Error("El código no puede estar vacío");
+      // Unicidad en cliente
+      const dup = clients.find((x) => x.code.toUpperCase() === code.toUpperCase() && x.id !== c.id);
+      if (dup) throw new Error(`El código "${code}" ya existe (cliente: ${dup.name}).`);
       const payload = {
+        code,
         name: c.name.trim(), tax_id: c.tax_id || null, phone: c.phone || null,
         email: c.email || null, address: c.address || null, contact_name: c.contact_name || null,
         notes: c.notes || null, status: c.status ?? "active",
@@ -100,7 +108,10 @@ function ClientesPage() {
     onError: (e: Error) => { toast.error(e.message || "No se pudo eliminar el registro."); setToDelete(null); },
   });
 
-  const filtered = clients.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = clients.filter((c) => {
+    const q = search.toLowerCase();
+    return c.name.toLowerCase().includes(q) || (c.code ?? "").toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-4">
@@ -111,23 +122,30 @@ function ClientesPage() {
             <DialogTrigger asChild>
               <Button size="sm" onClick={() => setEditing(empty)}><Plus className="h-4 w-4 mr-1" /> Nuevo cliente</Button>
             </DialogTrigger>
-            <ClientForm editing={editing} setEditing={setEditing} onSubmit={(c) => save.mutate(c)} saving={save.isPending} />
+            <ClientForm
+              editing={editing}
+              setEditing={setEditing}
+              onSubmit={(c) => save.mutate(c)}
+              saving={save.isPending}
+              clients={clients}
+              projectCounts={projectCounts ?? {}}
+            />
           </Dialog>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Buscar por nombre..." className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input placeholder="Buscar por nombre o código..." className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[90px]">Código</TableHead>
                   <TableHead>Nombre</TableHead>
                   <TableHead>CUIT / DNI</TableHead>
                   <TableHead>Contacto</TableHead>
                   <TableHead>Teléfono</TableHead>
-                  <TableHead>Email</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Proyectos</TableHead>
                   <TableHead></TableHead>
@@ -139,11 +157,11 @@ function ClientesPage() {
                 )}
                 {filtered.map((c) => (
                   <TableRow key={c.id}>
+                    <TableCell className="font-mono text-xs">{c.code}</TableCell>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell>{c.tax_id ?? "—"}</TableCell>
                     <TableCell>{c.contact_name ?? "—"}</TableCell>
                     <TableCell>{c.phone ?? "—"}</TableCell>
-                    <TableCell>{c.email ?? "—"}</TableCell>
                     <TableCell>
                       <Badge variant={c.status === "active" ? "default" : "secondary"} className="font-normal">
                         {clientStatusLabel[c.status]}
@@ -187,13 +205,35 @@ function ClientesPage() {
 }
 
 function ClientForm({
-  editing, setEditing, onSubmit, saving,
+  editing, setEditing, onSubmit, saving, clients, projectCounts,
 }: {
   editing: Partial<Client> | null;
   setEditing: (c: Partial<Client> | null) => void;
   onSubmit: (c: Partial<Client>) => void;
   saving: boolean;
+  clients: Client[];
+  projectCounts: Record<string, number>;
 }) {
+  const isEdit = !!editing?.id;
+  const hasProjects = isEdit && (projectCounts[editing!.id!] ?? 0) > 0;
+  // Code lock: only locked if editing existing client that has projects
+  const codeLocked = isEdit && hasProjects;
+
+  // Auto-generate code on name change (creation only, or edit without projects)
+  // Only auto-fill if code is empty (don't overwrite user edits).
+  useEffect(() => {
+    if (!editing) return;
+    if (codeLocked) return;
+    if (!editing.name) return;
+    const currentCode = sanitizeCode(editing.code ?? "");
+    if (currentCode) return;
+    const base = generateClientCode(editing.name);
+    const others = clients.filter((c) => c.id !== editing.id).map((c) => c.code);
+    const next = resolveUniqueClientCode(base, others);
+    setEditing({ ...editing, code: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.name]);
+
   if (!editing) return null;
   const c = editing;
   const set = (k: keyof Client, v: string) => setEditing({ ...c, [k]: v });
@@ -203,6 +243,17 @@ function ClientForm({
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(c); }} className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="Nombre *"><Input value={c.name ?? ""} onChange={(e) => set("name", e.target.value)} required /></Field>
+          <Field label="Código *">
+            <Input
+              value={c.code ?? ""}
+              onChange={(e) => setEditing({ ...c, code: sanitizeCode(e.target.value) })}
+              disabled={codeLocked}
+              maxLength={10}
+              className="font-mono uppercase"
+              required
+            />
+            {codeLocked && <p className="text-[11px] text-muted-foreground">Bloqueado: el cliente ya tiene proyectos.</p>}
+          </Field>
           <Field label="CUIT / DNI"><Input value={c.tax_id ?? ""} onChange={(e) => set("tax_id", e.target.value)} /></Field>
           <Field label="Contacto principal"><Input value={c.contact_name ?? ""} onChange={(e) => set("contact_name", e.target.value)} /></Field>
           <Field label="Teléfono"><Input value={c.phone ?? ""} onChange={(e) => set("phone", e.target.value)} /></Field>

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,18 +21,22 @@ import { toast } from "sonner";
 import { projectStatusLabel, projectStatusVariant, currencyLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { formatARS, formatDate, isOverdueProject, projectProgress } from "@/lib/finance";
+import { formatProjectCode, getNextProjectNumber } from "@/lib/codes";
 
 export const Route = createFileRoute("/_authenticated/proyectos")({
   component: ProyectosPage,
 });
 
 type Project = {
-  id: string; client_id: string; name: string; code: string | null; description: string | null;
+  id: string; client_id: string; name: string; code: string; project_number: number;
+  description: string | null;
   status: string; planned_start_date: string | null; planned_end_date: string | null;
   actual_start_date: string | null; actual_end_date: string | null;
   estimated_amount: number | string; contracted_amount: number | string;
   estimated_cost: number | string; currency: string; notes: string | null;
 };
+
+type ClientMin = { id: string; name: string; code: string };
 
 const emptyProject: Partial<Project> = {
   name: "", status: "quoted", currency: "ARS",
@@ -55,11 +59,11 @@ function ProyectosPage() {
       return data as Project[];
     },
   });
-  const { data: clients = [] } = useQuery({
+  const { data: clients = [] } = useQuery<ClientMin[]>({
     queryKey: ["clients-min"],
     queryFn: async () => {
-      const { data } = await supabase.from("clients").select("id,name").order("name");
-      return data ?? [];
+      const { data } = await supabase.from("clients").select("id,name,code").order("name");
+      return (data ?? []) as ClientMin[];
     },
   });
   const { data: tasks = [] } = useQuery({
@@ -70,15 +74,15 @@ function ProyectosPage() {
     },
   });
 
-  const clientMap = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c.name])), [clients]);
+  const clientMap = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c])), [clients]);
 
   const save = useMutation({
     mutationFn: async (p: Partial<Project>) => {
       if (!p.name?.trim()) throw new Error("El nombre es obligatorio");
       if (!p.client_id) throw new Error("Seleccioná un cliente");
       const num = (v: unknown) => Math.max(0, Number(v ?? 0));
-      const payload = {
-        client_id: p.client_id, name: p.name.trim(), code: p.code || null,
+      const base = {
+        client_id: p.client_id, name: p.name.trim(),
         description: p.description || null, status: (p.status ?? "quoted") as Project["status"],
         planned_start_date: p.planned_start_date || null, planned_end_date: p.planned_end_date || null,
         actual_start_date: p.actual_start_date || null, actual_end_date: p.actual_end_date || null,
@@ -87,13 +91,17 @@ function ProyectosPage() {
         notes: p.notes || null,
       };
       if (p.id) {
-        const { error } = await supabase.from("projects").update(payload as never).eq("id", p.id);
+        const { error } = await supabase.from("projects").update(base as never).eq("id", p.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("projects").insert(payload as never);
+        // Generate code + project_number automatically
+        const client = clientMap[p.client_id];
+        if (!client) throw new Error("Cliente no encontrado");
+        const projectNumber = await getNextProjectNumber(p.client_id);
+        const code = formatProjectCode(client.code, projectNumber);
+        const { error } = await supabase.from("projects").insert({ ...base, code, project_number: projectNumber } as never);
         if (error) throw error;
       }
-
     },
     onSuccess: () => {
       toast.success("Proyecto guardado");
@@ -159,6 +167,7 @@ function ProyectosPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[110px]">Código</TableHead>
                   <TableHead>Proyecto</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Estado</TableHead>
@@ -170,20 +179,20 @@ function ProyectosPage() {
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin proyectos.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Sin proyectos.</TableCell></TableRow>
                 )}
                 {filtered.map((p) => {
                   const progress = projectProgress(tasks.filter((t) => t.project_id === p.id));
                   const overdue = isOverdueProject(p);
                   return (
                     <TableRow key={p.id}>
+                      <TableCell className="font-mono text-xs">{p.code}</TableCell>
                       <TableCell className="font-medium">
                         <Link to="/proyectos/$id" params={{ id: p.id }} className="hover:underline">
                           {p.name}
-                          {p.code && <span className="ml-2 text-xs text-muted-foreground">{p.code}</span>}
                         </Link>
                       </TableCell>
-                      <TableCell>{clientMap[p.client_id] ?? "—"}</TableCell>
+                      <TableCell>{clientMap[p.client_id]?.name ?? "—"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Badge className={cn("font-normal", projectStatusVariant[p.status])}>{projectStatusLabel[p.status]}</Badge>
@@ -234,13 +243,36 @@ function ProjectForm({
 }: {
   editing: Partial<Project> | null;
   setEditing: (p: Partial<Project> | null) => void;
-  clients: { id: string; name: string }[];
+  clients: ClientMin[];
   onSubmit: (p: Partial<Project>) => void;
   saving: boolean;
 }) {
+  const [preview, setPreview] = useState<string>("");
+
+  // Compute preview of next project code when creating
+  useEffect(() => {
+    let cancelled = false;
+    async function compute() {
+      if (!editing || editing.id || !editing.client_id) { setPreview(""); return; }
+      const client = clients.find((c) => c.id === editing.client_id);
+      if (!client) { setPreview(""); return; }
+      try {
+        const n = await getNextProjectNumber(editing.client_id);
+        if (!cancelled) setPreview(formatProjectCode(client.code, n));
+      } catch {
+        if (!cancelled) setPreview("");
+      }
+    }
+    compute();
+    return () => { cancelled = true; };
+  }, [editing?.client_id, editing?.id, clients]);
+
   if (!editing) return null;
   const p = editing;
   const set = <K extends keyof Project>(k: K, v: Project[K] | string | null) => setEditing({ ...p, [k]: v as Project[K] });
+
+  const codeShown = p.id ? (p.code ?? "") : preview;
+
   return (
     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader><DialogTitle>{p.id ? "Editar proyecto" : "Nuevo proyecto"}</DialogTitle></DialogHeader>
@@ -249,11 +281,13 @@ function ProjectForm({
           <Field label="Cliente *">
             <Select value={p.client_id ?? ""} onValueChange={(v) => set("client_id", v)}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cliente" /></SelectTrigger>
-              <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} — {c.name}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
+          <Field label={p.id ? "Código" : "Próximo código"}>
+            <Input value={codeShown} readOnly disabled className="font-mono uppercase bg-muted/40" placeholder="Seleccioná un cliente" />
+          </Field>
           <Field label="Nombre del proyecto *"><Input value={p.name ?? ""} onChange={(e) => set("name", e.target.value)} required /></Field>
-          <Field label="Código interno"><Input value={p.code ?? ""} onChange={(e) => set("code", e.target.value)} /></Field>
           <Field label="Estado">
             <Select value={p.status ?? "quoted"} onValueChange={(v) => set("status", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
