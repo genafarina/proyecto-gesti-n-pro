@@ -25,7 +25,7 @@ function Dashboard() {
     queryFn: async () => {
       const [clients, projects, tasks, expenses, collections] = await Promise.all([
         supabase.from("clients").select("id,status"),
-        supabase.from("projects").select("id,name,client_id,status,planned_end_date,contracted_amount,estimated_cost,currency"),
+        supabase.from("projects").select("id,name,code,client_id,status,planned_end_date,contracted_amount,estimated_cost,currency"),
         supabase.from("project_tasks").select("id,project_id,status,progress_percentage,planned_end_date"),
         supabase.from("project_expenses").select("id,project_id,amount"),
         supabase.from("project_collections").select("id,project_id,amount"),
@@ -93,6 +93,7 @@ function Dashboard() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[110px]">Código</TableHead>
                 <TableHead>Proyecto</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Estado</TableHead>
@@ -106,7 +107,7 @@ function Dashboard() {
             </TableHeader>
             <TableBody>
               {activeProjects.length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-6">No hay proyectos activos.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-6">No hay proyectos activos.</TableCell></TableRow>
               )}
               {activeProjects.map((p) => {
                 const projTasks = data.tasks.filter((t) => t.project_id === p.id);
@@ -117,6 +118,7 @@ function Dashboard() {
                 const margin = currentMarginPct(projCol, projExp);
                 return (
                   <TableRow key={p.id}>
+                    <TableCell className="font-mono text-xs">{p.code}</TableCell>
                     <TableCell className="font-medium">
                       <Link to="/proyectos/$id" params={{ id: p.id }} className="hover:underline">{p.name}</Link>
                     </TableCell>
