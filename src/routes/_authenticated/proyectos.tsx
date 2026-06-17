@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { projectStatusLabel, projectStatusVariant, currencyLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { formatARS, formatDate, isOverdueProject, projectProgress } from "@/lib/finance";
-import { formatProjectCode, getNextProjectNumber } from "@/lib/codes";
+import { formatProjectCode } from "@/lib/codes";
 
 export const Route = createFileRoute("/_authenticated/proyectos")({
   component: ProyectosPage,
@@ -36,7 +36,7 @@ type Project = {
   estimated_cost: number | string; currency: string; notes: string | null;
 };
 
-type ClientMin = { id: string; name: string; code: string };
+type ClientMin = { id: string; name: string; code: string; next_project_number: number };
 
 const emptyProject: Partial<Project> = {
   name: "", status: "quoted", currency: "ARS",
@@ -62,7 +62,7 @@ function ProyectosPage() {
   const { data: clients = [] } = useQuery<ClientMin[]>({
     queryKey: ["clients-min"],
     queryFn: async () => {
-      const { data } = await supabase.from("clients").select("id,name,code").order("name");
+      const { data } = await supabase.from("clients").select("id,name,code,next_project_number").order("name");
       return (data ?? []) as ClientMin[];
     },
   });
@@ -94,18 +94,29 @@ function ProyectosPage() {
         const { error } = await supabase.from("projects").update(base as never).eq("id", p.id);
         if (error) throw error;
       } else {
-        // Generate code + project_number automatically
-        const client = clientMap[p.client_id];
-        if (!client) throw new Error("Cliente no encontrado");
-        const projectNumber = await getNextProjectNumber(p.client_id);
-        const code = formatProjectCode(client.code, projectNumber);
-        const { error } = await supabase.from("projects").insert({ ...base, code, project_number: projectNumber } as never);
+        const { error } = await supabase.rpc("create_project_with_code", {
+          _client_id: base.client_id,
+          _name: base.name,
+          _description: base.description,
+          _status: base.status as never,
+          _planned_start_date: base.planned_start_date,
+          _planned_end_date: base.planned_end_date,
+          _actual_start_date: base.actual_start_date,
+          _actual_end_date: base.actual_end_date,
+          _estimated_amount: base.estimated_amount,
+          _contracted_amount: base.contracted_amount,
+          _estimated_cost: base.estimated_cost,
+          _currency: base.currency as never,
+          _notes: base.notes,
+        });
         if (error) throw error;
       }
     },
     onSuccess: () => {
       toast.success("Proyecto guardado");
       qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["clients-min"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false); setEditing(null);
     },
@@ -257,7 +268,7 @@ function ProjectForm({
       const client = clients.find((c) => c.id === editing.client_id);
       if (!client) { setPreview(""); return; }
       try {
-        const n = await getNextProjectNumber(editing.client_id);
+        const n = client.next_project_number;
         if (!cancelled) setPreview(formatProjectCode(client.code, n));
       } catch {
         if (!cancelled) setPreview("");
