@@ -214,39 +214,38 @@ function ClientForm({
   clients: Client[];
   projectCounts: Record<string, number>;
 }) {
+  const [codeEditedManually, setCodeEditedManually] = useState(false);
   const isEdit = !!editing?.id;
   const hasProjects = isEdit && (projectCounts[editing!.id!] ?? 0) > 0;
   // Code lock: only locked if editing existing client that has projects
   const codeLocked = isEdit && hasProjects;
 
-  // Auto-generate code on name change (creation only, or edit without projects)
-  // Only auto-fill if code is empty (don't overwrite user edits).
   useEffect(() => {
-    if (!editing) return;
-    if (codeLocked) return;
-    if (!editing.name) return;
-    const currentCode = sanitizeCode(editing.code ?? "");
-    if (currentCode) return;
-    const base = generateClientCode(editing.name);
-    const others = clients.filter((c) => c.id !== editing.id).map((c) => c.code);
-    const next = resolveUniqueClientCode(base, others);
-    setEditing({ ...editing, code: next });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing?.name]);
+    setCodeEditedManually(false);
+  }, [editing?.id]);
 
   if (!editing) return null;
   const c = editing;
   const set = (k: keyof Client, v: string) => setEditing({ ...c, [k]: v });
+  const setName = (name: string) => {
+    if (codeLocked || codeEditedManually) {
+      setEditing({ ...c, name });
+      return;
+    }
+    const others = clients.filter((client) => client.id !== c.id).map((client) => client.code);
+    const code = name.trim() ? resolveUniqueClientCode(generateClientCode(name), others) : "";
+    setEditing({ ...c, name, code });
+  };
   return (
     <DialogContent className="max-w-lg">
       <DialogHeader><DialogTitle>{c.id ? "Editar cliente" : "Nuevo cliente"}</DialogTitle></DialogHeader>
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(c); }} className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field label="Nombre *"><Input value={c.name ?? ""} onChange={(e) => set("name", e.target.value)} required /></Field>
+          <Field label="Nombre *"><Input value={c.name ?? ""} onChange={(e) => setName(e.target.value)} required /></Field>
           <Field label="Código *">
             <Input
               value={c.code ?? ""}
-              onChange={(e) => setEditing({ ...c, code: sanitizeCode(e.target.value) })}
+              onChange={(e) => { setCodeEditedManually(true); setEditing({ ...c, code: sanitizeCode(e.target.value) }); }}
               disabled={codeLocked}
               maxLength={10}
               className="font-mono uppercase"

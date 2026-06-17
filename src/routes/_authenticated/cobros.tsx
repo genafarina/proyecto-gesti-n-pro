@@ -123,7 +123,7 @@ function CobrosPage() {
           <SelectTrigger className="w-[240px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los proyectos</SelectItem>
-            {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} — {p.name}</SelectItem>)}
+            {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}
           </SelectContent>
         </Select>
         <div className="overflow-x-auto">
@@ -138,7 +138,7 @@ function CobrosPage() {
               {filtered.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell>{formatDate(c.collection_date)}</TableCell>
-                  <TableCell><Link to="/proyectos/$id" params={{ id: c.project_id }} className="hover:underline">{projMap[c.project_id] ? `${projMap[c.project_id].code} — ${projMap[c.project_id].name}` : "—"}</Link></TableCell>
+                  <TableCell><Link to="/proyectos/$id" params={{ id: c.project_id }} className="hover:underline">{projMap[c.project_id] ? `${projMap[c.project_id].code} - ${projMap[c.project_id].name}` : "—"}</Link></TableCell>
                   <TableCell>{clientMap[c.client_id] ?? "—"}</TableCell>
                   <TableCell>{paymentMethodLabel[c.payment_method]}</TableCell>
                   <TableCell>{c.description ?? "—"}</TableCell>
@@ -201,7 +201,7 @@ export function CollectionForm({
           <Field label="Proyecto *">
             <Select value={c.project_id ?? ""} onValueChange={(v) => set("project_id", v)}>
               <SelectTrigger><SelectValue placeholder="Seleccionar proyecto" /></SelectTrigger>
-              <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.code ? `${p.code} — ${p.name}` : p.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.code ? `${p.code} - ${p.name}` : p.name}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
         )}

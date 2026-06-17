@@ -4,9 +4,9 @@
 import { supabase } from "@/integrations/supabase/client";
 
 /** Mayúsculas, sin acentos, sin caracteres especiales, espacios colapsados. */
-export function normalizeClientName(name: string): string {
-  if (!name) return "";
-  return name
+export function normalizeText(value: string): string {
+  if (!value) return "";
+  return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
@@ -15,9 +15,11 @@ export function normalizeClientName(name: string): string {
     .trim();
 }
 
+export const normalizeClientName = normalizeText;
+
 /** Genera el código base de un cliente desde su nombre (sin resolver colisiones). */
 export function generateClientCode(name: string): string {
-  const s = normalizeClientName(name);
+  const s = normalizeText(name);
   if (!s) return "XX";
   const parts = s.split(" ").filter(Boolean);
   if (parts.length === 1) {
@@ -46,14 +48,12 @@ export function formatProjectCode(clientCode: string, projectNumber: number): st
 /** Próximo número correlativo de proyecto para un cliente. */
 export async function getNextProjectNumber(clientId: string): Promise<number> {
   const { data, error } = await supabase
-    .from("projects")
-    .select("project_number")
-    .eq("client_id", clientId)
-    .order("project_number", { ascending: false })
-    .limit(1);
+    .from("clients")
+    .select("next_project_number")
+    .eq("id", clientId)
+    .single();
   if (error) throw error;
-  const max = data?.[0]?.project_number ?? 0;
-  return (max || 0) + 1;
+  return Math.max(Number(data?.next_project_number ?? 1), 1);
 }
 
 /** Sanitiza un código tipeado por el usuario. */
