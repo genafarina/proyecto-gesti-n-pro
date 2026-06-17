@@ -97,17 +97,17 @@ function ProyectosPage() {
         const { error } = await supabase.rpc("create_project_with_code", {
           _client_id: base.client_id,
           _name: base.name,
-          _description: base.description,
+          _description: base.description ?? undefined,
           _status: base.status as never,
-          _planned_start_date: base.planned_start_date,
-          _planned_end_date: base.planned_end_date,
-          _actual_start_date: base.actual_start_date,
-          _actual_end_date: base.actual_end_date,
+          _planned_start_date: base.planned_start_date ?? undefined,
+          _planned_end_date: base.planned_end_date ?? undefined,
+          _actual_start_date: base.actual_start_date ?? undefined,
+          _actual_end_date: base.actual_end_date ?? undefined,
           _estimated_amount: base.estimated_amount,
           _contracted_amount: base.contracted_amount,
           _estimated_cost: base.estimated_cost,
           _currency: base.currency as never,
-          _notes: base.notes,
+          _notes: base.notes ?? undefined,
         });
         if (error) throw error;
       }
