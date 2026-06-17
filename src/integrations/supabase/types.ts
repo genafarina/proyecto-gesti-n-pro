@@ -427,6 +427,51 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_project_with_code: {
+        Args: {
+          _actual_end_date?: string
+          _actual_start_date?: string
+          _client_id: string
+          _contracted_amount?: number
+          _currency?: Database["public"]["Enums"]["currency_code"]
+          _description?: string
+          _estimated_amount?: number
+          _estimated_cost?: number
+          _name: string
+          _notes?: string
+          _planned_end_date?: string
+          _planned_start_date?: string
+          _status?: Database["public"]["Enums"]["project_status"]
+        }
+        Returns: {
+          actual_end_date: string | null
+          actual_start_date: string | null
+          client_id: string
+          code: string
+          contracted_amount: number
+          created_at: string
+          created_by: string | null
+          currency: Database["public"]["Enums"]["currency_code"]
+          description: string | null
+          estimated_amount: number
+          estimated_cost: number
+          id: string
+          manager_id: string | null
+          name: string
+          notes: string | null
+          planned_end_date: string | null
+          planned_start_date: string | null
+          project_number: number
+          status: Database["public"]["Enums"]["project_status"]
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "projects"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       generate_client_code_base: { Args: { _name: string }; Returns: string }
       has_role: {
         Args: {
