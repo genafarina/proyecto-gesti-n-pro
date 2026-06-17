@@ -1,0 +1,4 @@
+REVOKE EXECUTE ON FUNCTION public.create_project_with_code(uuid, text, text, public.project_status, date, date, date, date, numeric, numeric, numeric, public.currency_code, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_project_with_code(uuid, text, text, public.project_status, date, date, date, date, numeric, numeric, numeric, public.currency_code, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.create_project_with_code(uuid, text, text, public.project_status, date, date, date, date, numeric, numeric, numeric, public.currency_code, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_project_with_code(uuid, text, text, public.project_status, date, date, date, date, numeric, numeric, numeric, public.currency_code, text) TO service_role;
