@@ -1,60 +1,49 @@
-## Plan: Códigos automáticos para clientes y proyectos
+# Auditoría de sincronización local vs origin/main
 
-### 1. Migración de base de datos
-Una sola migración SQL que:
-- Agrega `code TEXT` a `clients`.
-- Agrega `code TEXT` y `project_number INT` a `projects`.
-- Crea función PL/pgSQL `generate_client_code(name)` que normaliza (mayúsculas, sin acentos vía `unaccent` o replace manual, sin caracteres especiales) y devuelve iniciales según las reglas (1 palabra → 2 letras, 2+ palabras → iniciales).
-- Backfill clientes existentes: asigna código generado, resolviendo colisiones con sufijo numérico (`PD`, `PD2`, `PD3`…).
-- Backfill proyectos existentes: por cliente, ordena por `created_at` y asigna `project_number` 1..N y `code = CLIENTE-NN`.
-- Añade `NOT NULL`, `UNIQUE` en `clients.code` y `projects.code`, índice único compuesto `(client_id, project_number)`.
-- No toca RLS existente (ya permite a usuarios autenticados leer/escribir).
+## Nota importante sobre Git en Lovable
 
-### 2. Lógica centralizada — `src/lib/codes.ts`
-Nuevo archivo con:
-- `normalizeClientName(name)` — uppercase, sin acentos, sin caracteres especiales, colapsa espacios.
-- `generateClientCode(name)` — aplica reglas (1 palabra → 2 primeras letras; 2+ → iniciales).
-- `resolveUniqueClientCode(baseCode, existingCodes)` — agrega sufijo si está repetido.
-- `getNextProjectNumber(clientId)` — consulta Supabase: `max(project_number) + 1` o `1`.
-- `formatProjectCode(clientCode, projectNumber)` — `CLIENTE-NN` con padding 2 dígitos.
+En el sandbox de Lovable el estado de Git está **gestionado internamente** por la plataforma: los comandos como `git fetch`, `git status`, `git checkout`, `git reset`, `git pull`, `git push` están bloqueados para el agente. La sincronización bidireccional con GitHub `genafarina/proyecto-gesti-n-pro` la maneja Lovable automáticamente cada vez que se hace un cambio en la app o se pushea a `main`. Por eso esta tarea se limita a **auditar el contenido actual del workspace** (que refleja lo que Lovable tiene sincronizado con `origin/main`) y reportar.
 
-### 3. Cambios en UI (sin alterar diseño)
+## 1. Estado de la migración vieja
 
-**Clientes (`clientes.tsx`)**
-- Columna nueva "Código" al inicio de la tabla.
-- Formulario: campo `code` editable, autogenerado al tipear el nombre (solo en creación, o en edición si el cliente no tiene proyectos).
-- Validación: requerido, único, mayúsculas, sin espacios. Mensaje claro si está duplicado.
-- Si se edita el nombre y el cliente ya tiene proyectos, el código queda bloqueado (read-only con tooltip).
+`supabase/migrations/20260613123000_add_client_project_codes.sql` **no existe** en el workspace. No hay nada que eliminar.
 
-**Proyectos (`proyectos.tsx`)**
-- Columna nueva "Código" al inicio.
-- Formulario de creación: al elegir cliente, mostrar preview "Próximo código: PD-03" (read-only).
-- Al guardar: calcular `project_number` y `code` automáticamente (se hace en cliente con `getNextProjectNumber`).
-- El campo `code` no es editable.
+## 2. Migraciones actuales relacionadas al sistema de códigos
 
-**Detalle de proyecto (`proyectos.$id.tsx`)**
-- Mostrar `code` junto al nombre en el header.
+Presentes en `supabase/migrations/`:
 
-**Dashboard (`dashboard.tsx`)**
-- En la tabla de proyectos en curso, agregar columna "Código" al inicio.
+- `20260616230043_544818f9-…sql` — agrega `clients.code` (UNIQUE), `projects.code` (UNIQUE), `projects.project_number`, índice único `(client_id, project_number)`, función `generate_client_code_base`, backfill inicial.
+- `20260617205723_34d1ed31-…sql` — agrega `clients.next_project_number` (NOT NULL DEFAULT 1), backfill al máximo `project_number + 1`, corrige códigos de cliente mal generados (sufijos `X`).
+- `20260617205834_92fc7e0f-…sql` — crea/actualiza `create_project_with_code(...)` con bloqueo `FOR UPDATE` sobre el cliente, inserta el proyecto e incrementa `next_project_number` en una sola transacción.
+- `20260617210226_0d68bcd7-…sql` — `REVOKE`/`GRANT EXECUTE` de `create_project_with_code` a `authenticated` y `service_role`.
+- `20260618181418_5f5deb24-…sql` — migración de endurecimiento de seguridad (RLS por rol admin, etc.). Reescribe `create_project_with_code` manteniendo `FOR UPDATE` y agrega chequeo interno `has_role(...,'admin')`. Esta es la última y es la que está activa en la base.
 
-**Gastos (`gastos.tsx`) y Cobros (`cobros.tsx`)**
-- En selectores y listados, mostrar el proyecto como `PD-01 — Nombre del proyecto`.
+Migraciones no relacionadas a códigos (no se tocan): `20260611155423_…sql`, `20260612165754_…sql`.
 
-### 4. Validaciones
-- Cliente: code requerido, único, uppercase, sin espacios/caracteres especiales — validación en formulario antes de submit y manejo de error de unicidad de Postgres.
-- Proyecto: code generado siempre; chequeo de colisión por race condition con reintento.
+## 3. Confirmaciones funcionales
 
-### 5. Lo que NO se toca
-- `src/lib/finance.ts`, cálculos, dashboards (solo se añade columna visual).
-- RLS, auth, tablas existentes (solo columnas nuevas), diseño general, otros módulos.
+- `src/lib/codes.ts` está presente. `generateClientCode` cumple los casos pedidos: una palabra ≥2 letras → primeras 2 letras (AVA → AV); varias palabras → iniciales (Patagonia Drilling → PD, Bodega Los Andes → BLA, Constructora Mendoza → CM); solo rellena con `X` cuando hay 1 sola letra (A → AX).
+- `clients.code`, `projects.code`, `projects.project_number` y `clients.next_project_number` existen (vistos también en `src/integrations/supabase/types.ts`).
+- `proyectos.tsx` crea proyectos vía `supabase.rpc("create_project_with_code", …)`; no usa `count()`.
+- Restricciones únicas garantizadas por las migraciones: `clients.code`, `projects.code`, `(client_id, project_number)`.
+- Gastos y cobros muestran `CODE - Nombre` (`gastos.tsx`, `cobros.tsx`, `dashboard.tsx`).
 
-### Archivos a modificar
-- `supabase/migrations/<nueva>.sql` (nueva)
-- `src/lib/codes.ts` (nuevo)
-- `src/routes/_authenticated/clientes.tsx`
-- `src/routes/_authenticated/proyectos.tsx`
-- `src/routes/_authenticated/proyectos.$id.tsx`
-- `src/routes/_authenticated/dashboard.tsx`
-- `src/routes/_authenticated/gastos.tsx`
-- `src/routes/_authenticated/cobros.tsx`
+## 4. Reporte de código potencialmente muerto (sin tocar)
+
+- `getNextProjectNumber(clientId)` en `src/lib/codes.ts` solo está **exportada**; ningún archivo bajo `src/` la importa. Es código muerto candidato a remoción **en otra tarea**.
+- La función SQL `create_project_with_code` ya **usa `FOR UPDATE`** sobre `public.clients` para serializar el incremento del contador; no hace falta mejora.
+
+## 5. Resultado
+
+- Sincronización local: el workspace ya refleja `origin/main` (sumado a la última migración de seguridad aplicada en Lovable).
+- Archivos obsoletos eliminados: ninguno necesario.
+- Migración vieja `20260613123000_add_client_project_codes.sql`: ya no existe localmente.
+- Lógica funcional: no se tocó.
+
+## 6. Recomendación para la próxima tarea
+
+Tarea separada y acotada: eliminar `getNextProjectNumber` de `src/lib/codes.ts` (más cualquier import si apareciera) y, opcionalmente, agregar tests mínimos a `generateClientCode` / `resolveUniqueClientCode`. Sin cambios en la base de datos.
+
+## Acción de este plan
+
+Ninguna modificación de archivos. Aprobar este plan cierra la auditoría sin tocar nada; si querés que avance directamente con la limpieza de `getNextProjectNumber`, indicámelo y armo un plan separado para eso.
