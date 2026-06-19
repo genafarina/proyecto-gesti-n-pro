@@ -57,6 +57,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Trash2,
   TrendingUp,
   UserRound,
   WalletCards,
@@ -121,6 +122,7 @@ function GeneralExpensesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<GeneralExpense> | null>(null);
   const [toCancel, setToCancel] = useState<GeneralExpense | null>(null);
+  const [toDelete, setToDelete] = useState<GeneralExpense | null>(null);
 
   const { data: expenses = [], isLoading: loadingExpenses } = useQuery({
     queryKey: ["general-expenses"],
@@ -249,6 +251,22 @@ function GeneralExpensesPage() {
     onError: (error: Error) => {
       toast.error(error.message || "No se pudo anular el gasto.");
       setToCancel(null);
+    },
+  });
+
+  const deleteExpense = useMutation({
+    mutationFn: async (expense: GeneralExpense) => {
+      const { error } = await supabase.from("general_expenses").delete().eq("id", expense.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Gasto general eliminado definitivamente.");
+      invalidate();
+      setToDelete(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "No se pudo eliminar el gasto.");
+      setToDelete(null);
     },
   });
 
@@ -622,6 +640,15 @@ function GeneralExpensesPage() {
                           <Ban className="h-4 w-4" />
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        title="Eliminar definitivamente"
+                        onClick={() => setToDelete(expense)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -647,6 +674,28 @@ function GeneralExpensesPage() {
               disabled={cancelExpense.isPending}
             >
               Anular gasto
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!toDelete} onOpenChange={(nextOpen) => !nextOpen && setToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar gasto definitivamente</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción elimina el gasto de la base de datos y no se puede deshacer. Para
+              conservar el movimiento como histórico, usá Anular.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => toDelete && deleteExpense.mutate(toDelete)}
+              disabled={deleteExpense.isPending}
+            >
+              Eliminar definitivamente
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
