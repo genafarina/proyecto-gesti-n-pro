@@ -6,6 +6,7 @@ import {
   Users,
   FolderKanban,
   Receipt,
+  HandCoins,
   Banknote,
   Settings,
   LogOut,
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/clientes", label: "Clientes", icon: Users },
   { to: "/proyectos", label: "Proyectos", icon: FolderKanban },
   { to: "/gastos", label: "Gastos", icon: Receipt },
+  { to: "/gastos-generales", label: "Gastos Generales", icon: HandCoins },
   { to: "/cobros", label: "Cobros", icon: Banknote },
   { to: "/configuracion", label: "Configuración", icon: Settings },
 ] as const;
@@ -31,6 +33,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/clientes": "Clientes",
   "/proyectos": "Proyectos",
   "/gastos": "Gastos",
+  "/gastos-generales": "Gastos Generales",
   "/cobros": "Cobros",
   "/configuracion": "Configuración",
 };
@@ -48,8 +51,9 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const title =
-    Object.entries(PAGE_TITLES).find(([p]) => pathname === p || pathname.startsWith(p + "/"))?.[1] ??
-    "Sistema";
+    Object.entries(PAGE_TITLES).find(
+      ([p]) => pathname === p || pathname.startsWith(p + "/"),
+    )?.[1] ?? "Sistema";
 
   const SidebarInner = (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
