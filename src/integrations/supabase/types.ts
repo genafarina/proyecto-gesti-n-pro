@@ -65,6 +65,98 @@ export type Database = {
         }
         Relationships: []
       }
+      general_expenses: {
+        Row: {
+          amount: number
+          category: string
+          created_at: string
+          description: string
+          expense_date: string
+          expense_type: string
+          id: string
+          notes: string | null
+          other_payment_account_detail: string | null
+          payee: string | null
+          payment_account_id: string
+          payment_method: Database["public"]["Enums"]["payment_method"]
+          receipt_url: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category: string
+          created_at?: string
+          description: string
+          expense_date: string
+          expense_type: string
+          id?: string
+          notes?: string | null
+          other_payment_account_detail?: string | null
+          payee?: string | null
+          payment_account_id: string
+          payment_method: Database["public"]["Enums"]["payment_method"]
+          receipt_url?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          created_at?: string
+          description?: string
+          expense_date?: string
+          expense_type?: string
+          id?: string
+          notes?: string | null
+          other_payment_account_detail?: string | null
+          payee?: string | null
+          payment_account_id?: string
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          receipt_url?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "general_expenses_payment_account_id_fkey"
+            columns: ["payment_account_id"]
+            isOneToOne: false
+            referencedRelation: "payment_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_accounts: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          notes: string | null
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          notes?: string | null
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           active: boolean
@@ -102,6 +194,7 @@ export type Database = {
           description: string | null
           id: string
           notes: string | null
+          payment_account_id: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
           project_id: string
           updated_at: string
@@ -115,6 +208,7 @@ export type Database = {
           description?: string | null
           id?: string
           notes?: string | null
+          payment_account_id?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"]
           project_id: string
           updated_at?: string
@@ -128,6 +222,7 @@ export type Database = {
           description?: string | null
           id?: string
           notes?: string | null
+          payment_account_id?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"]
           project_id?: string
           updated_at?: string
@@ -138,6 +233,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_collections_payment_account_id_fkey"
+            columns: ["payment_account_id"]
+            isOneToOne: false
+            referencedRelation: "payment_accounts"
             referencedColumns: ["id"]
           },
           {
@@ -159,6 +261,7 @@ export type Database = {
           expense_date: string
           id: string
           notes: string | null
+          payment_account_id: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
           project_id: string
           receipt_url: string | null
@@ -175,6 +278,7 @@ export type Database = {
           expense_date?: string
           id?: string
           notes?: string | null
+          payment_account_id?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"]
           project_id: string
           receipt_url?: string | null
@@ -191,6 +295,7 @@ export type Database = {
           expense_date?: string
           id?: string
           notes?: string | null
+          payment_account_id?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"]
           project_id?: string
           receipt_url?: string | null
@@ -199,6 +304,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_expenses_payment_account_id_fkey"
+            columns: ["payment_account_id"]
+            isOneToOne: false
+            referencedRelation: "payment_accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_expenses_project_id_fkey"
             columns: ["project_id"]
