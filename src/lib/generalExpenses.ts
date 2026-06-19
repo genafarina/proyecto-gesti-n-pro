@@ -1,5 +1,6 @@
 import type { Enums } from "@/integrations/supabase/types";
 
+// Shared calculations keep filters, KPIs, charts, and exports consistent.
 export type GeneralExpense = {
   id: string;
   expense_date: string;
