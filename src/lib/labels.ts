@@ -63,6 +63,60 @@ export const paymentMethodLabel: Record<string, string> = {
   other: "Otro",
 };
 
+export const generalExpenseCategoryLabel: Record<string, string> = {
+  salaries: "Sueldos",
+  fuel: "Combustible",
+  maintenance: "Mantenimiento",
+  services: "Servicios",
+  accountant: "Contador",
+  taxes: "Impuestos",
+  general_travel_expenses: "Viáticos generales",
+  personal_expenses: "Gastos personales",
+  tools: "Herramientas",
+  investments: "Inversiones",
+  other: "Otros",
+};
+
+export const generalExpenseTypeLabel: Record<string, string> = {
+  operational: "Operativo",
+  personal: "Personal",
+  investment: "Inversión",
+};
+
+export const generalExpenseStatusLabel: Record<string, string> = {
+  paid: "Pagado",
+  pending: "Pendiente",
+  cancelled: "Anulado",
+};
+
+export const generalExpenseStatusVariant: Record<string, string> = {
+  paid: "bg-success/15 text-success border border-success/30",
+  pending: "bg-warning/15 text-warning-foreground border border-warning/40",
+  cancelled: "bg-muted text-muted-foreground",
+};
+
+export const paymentAccountTypeLabel: Record<string, string> = {
+  bank: "Banco",
+  virtual_wallet: "Billetera virtual",
+  cash: "Efectivo",
+  credit: "Crédito",
+  other: "Otro",
+};
+
+export const defaultGeneralExpenseType: Record<string, string> = {
+  salaries: "operational",
+  fuel: "operational",
+  maintenance: "operational",
+  services: "operational",
+  accountant: "operational",
+  taxes: "operational",
+  general_travel_expenses: "operational",
+  tools: "operational",
+  investments: "investment",
+  personal_expenses: "personal",
+  other: "operational",
+};
+
 export const clientStatusLabel: Record<string, string> = {
   active: "Activo",
   inactive: "Inactivo",
