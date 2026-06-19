@@ -287,8 +287,12 @@ function GeneralExpensesPage() {
     const link = document.createElement("a");
     link.href = url;
     link.download = `gastos-generales-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.style.display = "none";
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    toast.success("Archivo CSV generado para abrir en Excel.");
   };
 
   const isLoading = loadingExpenses || loadingAccounts;
@@ -305,7 +309,7 @@ function GeneralExpensesPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="mr-1.5 h-4 w-4" />
-            Exportar
+            Exportar CSV
           </Button>
           <Dialog
             open={open}
