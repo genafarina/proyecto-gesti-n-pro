@@ -32,7 +32,7 @@ import {
 } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_authenticated/proyectos/$id")({
+export const Route = createFileRoute("/_authenticated/proyectos_/$id")({
   component: ProjectDetail,
 });
 
