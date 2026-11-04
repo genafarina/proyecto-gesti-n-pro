@@ -16,6 +16,9 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+
+# Supabase CLI local link state
+supabase/.temp/
 .env
 .env.*
 !.env.example
