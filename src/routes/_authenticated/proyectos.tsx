@@ -259,13 +259,15 @@ function ProjectForm({
   saving: boolean;
 }) {
   const [preview, setPreview] = useState<string>("");
+  const editingId = editing?.id;
+  const editingClientId = editing?.client_id;
 
   // Compute preview of next project code when creating
   useEffect(() => {
     let cancelled = false;
     async function compute() {
-      if (!editing || editing.id || !editing.client_id) { setPreview(""); return; }
-      const client = clients.find((c) => c.id === editing.client_id);
+      if (editingId || !editingClientId) { setPreview(""); return; }
+      const client = clients.find((c) => c.id === editingClientId);
       if (!client) { setPreview(""); return; }
       try {
         const n = client.next_project_number;
@@ -276,7 +278,7 @@ function ProjectForm({
     }
     compute();
     return () => { cancelled = true; };
-  }, [editing?.client_id, editing?.id, clients]);
+  }, [editingClientId, editingId, clients]);
 
   if (!editing) return null;
   const p = editing;
