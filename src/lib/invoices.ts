@@ -22,8 +22,34 @@ export type InvoiceBalance = {
   allocated_amount: number | string;
   balance_due: number | string;
   payment_status: InvoicePaymentStatus;
+  project_ids: string[];
+  project_count: number;
   created_at?: string;
   updated_at?: string;
+};
+
+export type InvoiceProject = {
+  invoice_id: string;
+  project_id: string;
+  amount: number | string;
+};
+
+export type InvoiceProjectBalance = {
+  invoice_id: string;
+  project_id: string;
+  client_id: string;
+  document_type: string;
+  point_of_sale: string;
+  invoice_number: string;
+  issue_date: string;
+  due_date: string | null;
+  concept: string;
+  currency: CurrencyCode;
+  status: InvoiceStatus;
+  project_amount: number | string;
+  allocated_amount: number | string;
+  balance_due: number | string;
+  payment_status: InvoicePaymentStatus;
 };
 
 export type CollectionAllocationSummary = {
@@ -117,7 +143,9 @@ export function filterInvoices(invoices: InvoiceBalance[], filters: InvoiceFilte
   const number = filters.number.trim().toLowerCase();
   return invoices.filter((invoice) => {
     if (filters.clientId !== "all" && invoice.client_id !== filters.clientId) return false;
-    if (filters.projectId !== "all" && invoice.project_id !== filters.projectId) return false;
+    if (filters.projectId !== "all" && !invoice.project_ids.includes(filters.projectId)) {
+      return false;
+    }
     if (filters.status !== "all" && invoice.status !== filters.status) return false;
     if (filters.from && invoice.issue_date < filters.from) return false;
     if (filters.to && invoice.issue_date > filters.to) return false;
@@ -135,20 +163,82 @@ export function filterInvoices(invoices: InvoiceBalance[], filters: InvoiceFilte
 }
 
 export function maximumAllocation(
-  invoice: Pick<InvoiceBalance, "balance_due" | "status" | "currency" | "project_id" | "client_id">,
-  collection: Pick<
-    CollectionAllocationSummary,
-    "unallocated_amount" | "currency" | "project_id" | "client_id"
-  >,
+  invoice: Pick<InvoiceBalance, "balance_due" | "status" | "currency" | "client_id">,
+  collection: Pick<CollectionAllocationSummary, "unallocated_amount" | "currency" | "client_id">,
 ) {
   if (invoice.status === "cancelled") return 0;
-  if (invoice.project_id !== collection.project_id) return 0;
   if (invoice.client_id !== collection.client_id) return 0;
   if (invoice.currency !== collection.currency) return 0;
   return Math.max(
     0,
     Math.min(numberValue(invoice.balance_due), numberValue(collection.unallocated_amount)),
   );
+}
+
+export function maximumProjectAllocation(
+  invoice: Pick<InvoiceBalance, "status" | "currency" | "client_id">,
+  project: Pick<InvoiceProjectBalance, "balance_due">,
+  collection: Pick<CollectionAllocationSummary, "unallocated_amount" | "currency" | "client_id">,
+) {
+  if (invoice.status === "cancelled") return 0;
+  if (invoice.client_id !== collection.client_id) return 0;
+  if (invoice.currency !== collection.currency) return 0;
+  return Math.max(
+    0,
+    Math.min(numberValue(project.balance_due), numberValue(collection.unallocated_amount)),
+  );
+}
+
+export function validateInvoiceProjectBreakdown(
+  projects: { project_id: string; amount: number | string }[],
+  totalAmount: number,
+) {
+  if (projects.length === 0) throw new Error("Seleccioná al menos un proyecto.");
+  if (new Set(projects.map((project) => project.project_id)).size !== projects.length) {
+    throw new Error("No se puede repetir un proyecto en el desglose.");
+  }
+
+  const normalized = projects.map((project) => {
+    const amount = Math.round(numberValue(project.amount) * 100) / 100;
+    if (!project.project_id || amount <= 0) {
+      throw new Error("Cada proyecto debe tener un importe mayor a cero.");
+    }
+    return { project_id: project.project_id, amount };
+  });
+  const distributed = Math.round(
+    normalized.reduce((sum, project) => sum + project.amount, 0) * 100,
+  );
+  const total = Math.round(totalAmount * 100);
+  if (distributed !== total) {
+    throw new Error("La suma por proyecto debe coincidir exactamente con el total de la factura.");
+  }
+  return normalized;
+}
+
+type PdfPreviewWindow = {
+  opener: unknown;
+  location: { replace: (url: string) => void };
+  close: () => void;
+};
+
+export async function openSignedPdf(
+  createSignedUrl: () => Promise<string>,
+  openWindow: () => PdfPreviewWindow | null,
+) {
+  // Open synchronously from the click event. Opening only after awaiting the
+  // signed URL is treated as a popup by browsers and was the cause of the PDF
+  // appearing not to open even though Storage returned a valid URL.
+  const preview = openWindow();
+  if (!preview) {
+    throw new Error("El navegador bloqueó la nueva pestaña. Habilitá las ventanas emergentes.");
+  }
+  preview.opener = null;
+  try {
+    preview.location.replace(await createSignedUrl());
+  } catch (error) {
+    preview.close();
+    throw error;
+  }
 }
 
 export function buildCurrencyFinancialSummary(
@@ -178,9 +268,9 @@ export function buildCurrencyFinancialSummary(
     collected: collections
       .filter((collection) => collection.currency === currency)
       .reduce((sum, collection) => sum + numberValue(collection.amount), 0),
-    allocated: collections
-      .filter((collection) => collection.currency === currency)
-      .reduce((sum, collection) => sum + numberValue(collection.allocated_amount), 0),
+    allocated: invoices
+      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+      .reduce((sum, invoice) => sum + numberValue(invoice.allocated_amount), 0),
     invoiceBalance: invoices
       .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
       .reduce((sum, invoice) => sum + numberValue(invoice.balance_due), 0),

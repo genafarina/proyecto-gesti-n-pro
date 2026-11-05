@@ -21,7 +21,7 @@ import {
   projectCurrencyFinancialSummary,
   type CollectionAllocationSummary,
   type CurrencyCode,
-  type InvoiceBalance,
+  type InvoiceProjectBalance,
 } from "@/lib/invoices";
 import { ExternalLink } from "lucide-react";
 
@@ -38,12 +38,12 @@ export function ProjectInvoicesSection({
     queryKey: ["project-invoice-balances", project.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("invoice_balances")
+        .from("invoice_project_balances")
         .select("*")
         .eq("project_id", project.id)
         .order("issue_date", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as InvoiceBalance[];
+      return (data ?? []) as unknown as InvoiceProjectBalance[];
     },
   });
 
@@ -60,7 +60,19 @@ export function ProjectInvoicesSection({
     },
   });
 
-  const summaries = projectCurrencyFinancialSummary(project.id, [project], invoices, collections);
+  const summaries = projectCurrencyFinancialSummary(
+    project.id,
+    [project],
+    invoices.map((invoice) => ({
+      project_id: invoice.project_id,
+      currency: invoice.currency,
+      total_amount: invoice.project_amount,
+      allocated_amount: invoice.allocated_amount,
+      balance_due: invoice.balance_due,
+      status: invoice.status,
+    })),
+    collections,
+  );
 
   return (
     <div className="space-y-4">
@@ -146,7 +158,7 @@ export function ProjectInvoicesSection({
                 </TableRow>
               )}
               {invoices.map((invoice) => (
-                <TableRow key={invoice.id}>
+                <TableRow key={invoice.invoice_id}>
                   <TableCell>
                     <div>{invoiceDocumentTypeLabel[invoice.document_type]}</div>
                     <div className="font-mono text-xs text-muted-foreground">
@@ -164,7 +176,7 @@ export function ProjectInvoicesSection({
                       : invoicePaymentStatusLabel[invoice.payment_status]}
                   </TableCell>
                   <TableCell className="text-right">
-                    {formatARS(Number(invoice.total_amount), invoice.currency)}
+                    {formatARS(Number(invoice.project_amount), invoice.currency)}
                   </TableCell>
                   <TableCell className="text-right">
                     {formatARS(Number(invoice.balance_due), invoice.currency)}

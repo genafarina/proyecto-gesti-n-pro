@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -48,12 +49,15 @@ import {
   invoiceDocumentTypeLabel,
   invoicePaymentStatusLabel,
   invoiceStatusLabel,
-  maximumAllocation,
+  maximumProjectAllocation,
+  openSignedPdf,
   optionalAmount,
+  validateInvoiceProjectBreakdown,
   type CollectionAllocationSummary,
   type CurrencyCode,
   type InvoiceBalance,
   type InvoiceFilters,
+  type InvoiceProjectBalance,
 } from "@/lib/invoices";
 import { paymentMethodLabel } from "@/lib/labels";
 import { Ban, Eye, FileText, Link2, Pencil, Plus, Trash2, Unlink } from "lucide-react";
@@ -77,6 +81,7 @@ type InvoiceAllocation = {
   id: string;
   invoice_id: string;
   collection_id: string;
+  project_id: string;
   amount: number;
 };
 
@@ -84,6 +89,7 @@ type InvoiceDraft = Partial<InvoiceBalance> & {
   net_amount?: number | string | null;
   vat_amount?: number | string | null;
   total_amount?: number | string;
+  project_allocations: { project_id: string; amount: number | string }[];
 };
 
 const initialFilters: InvoiceFilters = {
@@ -162,6 +168,15 @@ function InvoicesPage() {
     },
   });
 
+  const { data: invoiceProjects = [] } = useQuery({
+    queryKey: ["invoice-project-balances"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("invoice_project_balances").select("*");
+      if (error) throw error;
+      return (data ?? []) as unknown as InvoiceProjectBalance[];
+    },
+  });
+
   const projectMap = useMemo(
     () => Object.fromEntries(projects.map((project) => [project.id, project])),
     [projects],
@@ -174,6 +189,13 @@ function InvoicesPage() {
     () => Object.fromEntries(collections.map((collection) => [collection.id, collection])),
     [collections],
   );
+  const invoiceProjectsByInvoice = useMemo(() => {
+    const grouped: Record<string, InvoiceProjectBalance[]> = {};
+    invoiceProjects.forEach((line) => {
+      (grouped[line.invoice_id] ??= []).push(line);
+    });
+    return grouped;
+  }, [invoiceProjects]);
   const filtered = useMemo(() => filterInvoices(invoices, filters), [filters, invoices]);
   const filteredProjects = useMemo(
     () =>
@@ -186,6 +208,7 @@ function InvoicesPage() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["invoice-balances"] });
     queryClient.invalidateQueries({ queryKey: ["invoice-allocations"] });
+    queryClient.invalidateQueries({ queryKey: ["invoice-project-balances"] });
     queryClient.invalidateQueries({ queryKey: ["collection-allocation-summary"] });
     queryClient.invalidateQueries({ queryKey: ["project-invoice-balances"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -201,9 +224,21 @@ function InvoicesPage() {
       file: File | null;
       removeExisting: boolean;
     }) => {
-      if (!draft.project_id) throw new Error("Seleccioná un proyecto.");
-      const project = projectMap[draft.project_id];
-      if (!project) throw new Error("El proyecto seleccionado no existe.");
+      if (!draft.project_allocations.length) throw new Error("Seleccioná al menos un proyecto.");
+      const selectedProjects = draft.project_allocations.map((line) => projectMap[line.project_id]);
+      if (selectedProjects.some((project) => !project)) {
+        throw new Error("Uno de los proyectos seleccionados no existe.");
+      }
+      const [primaryProject] = selectedProjects as ProjectMin[];
+      if (
+        selectedProjects.some(
+          (project) =>
+            project?.client_id !== primaryProject.client_id ||
+            project?.currency !== primaryProject.currency,
+        )
+      ) {
+        throw new Error("Todos los proyectos deben pertenecer al mismo cliente y moneda.");
+      }
       if (!draft.document_type) throw new Error("Seleccioná un tipo de comprobante.");
       if (!draft.point_of_sale?.match(/^\d{1,8}$/)) {
         throw new Error("El punto de venta debe contener únicamente números.");
@@ -220,6 +255,10 @@ function InvoicesPage() {
       const netAmount = optionalAmount(draft.net_amount, "El importe neto");
       const vatAmount = optionalAmount(draft.vat_amount, "El IVA");
       const totalAmount = calculateInvoiceTotal(netAmount, vatAmount, draft.total_amount);
+      const projectAllocations = validateInvoiceProjectBreakdown(
+        draft.project_allocations,
+        totalAmount,
+      );
       const invoiceId = draft.id ?? crypto.randomUUID();
       const previousPath = draft.pdf_path ?? null;
       let uploadedPath: string | null = null;
@@ -228,8 +267,7 @@ function InvoicesPage() {
 
       const payload = {
         id: invoiceId,
-        client_id: project.client_id,
-        project_id: project.id,
+        client_id: primaryProject.client_id,
         document_type: draft.document_type,
         point_of_sale: draft.point_of_sale,
         invoice_number: draft.invoice_number,
@@ -239,15 +277,16 @@ function InvoicesPage() {
         net_amount: netAmount,
         vat_amount: vatAmount,
         total_amount: totalAmount,
-        currency: project.currency as CurrencyCode,
+        currency: primaryProject.currency as CurrencyCode,
         pdf_path: uploadedPath ?? (removeExisting ? null : previousPath),
         notes: draft.notes?.trim() || null,
         status: draft.status ?? "issued",
       };
 
-      const result = draft.id
-        ? await supabase.from("invoices").update(payload).eq("id", draft.id)
-        : await supabase.from("invoices").insert(payload);
+      const result = await supabase.rpc("save_invoice_with_projects", {
+        p_invoice: payload,
+        p_projects: projectAllocations,
+      });
 
       if (result.error) {
         if (uploadedPath) await supabase.storage.from("invoice-documents").remove([uploadedPath]);
@@ -310,16 +349,16 @@ function InvoicesPage() {
     mutationFn: async ({
       invoiceId,
       collectionId,
-      amount,
+      projects,
     }: {
       invoiceId: string;
       collectionId: string;
-      amount: number;
+      projects: { project_id: string; amount: number }[];
     }) => {
-      const { error } = await supabase.from("invoice_allocations").insert({
-        invoice_id: invoiceId,
-        collection_id: collectionId,
-        amount,
+      const { error } = await supabase.rpc("allocate_collection_to_invoice_projects", {
+        p_invoice_id: invoiceId,
+        p_collection_id: collectionId,
+        p_projects: projects,
       });
       if (error) throw error;
     },
@@ -354,6 +393,7 @@ function InvoicesPage() {
       project_id: project?.id,
       client_id: project?.client_id,
       currency: project?.currency ?? "ARS",
+      project_allocations: project ? [{ project_id: project.id, amount: "" }] : [],
       document_type: "C",
       point_of_sale: "00001",
       invoice_number: "",
@@ -367,16 +407,32 @@ function InvoicesPage() {
     });
   }
 
+  function startEdit(invoice: InvoiceBalance) {
+    setEditing({
+      ...invoice,
+      project_allocations: (invoiceProjectsByInvoice[invoice.id] ?? []).map((line) => ({
+        project_id: line.project_id,
+        amount: line.project_amount,
+      })),
+    });
+  }
+
   async function openPdf(invoice: InvoiceBalance) {
     if (!invoice.pdf_path) return;
-    const { data, error } = await supabase.storage
-      .from("invoice-documents")
-      .createSignedUrl(invoice.pdf_path, 60);
-    if (error) {
-      toast.error(error.message || "No se pudo abrir el PDF.");
-      return;
+    try {
+      await openSignedPdf(
+        async () => {
+          const { data, error } = await supabase.storage
+            .from("invoice-documents")
+            .createSignedUrl(invoice.pdf_path!, 60);
+          if (error) throw error;
+          return data.signedUrl;
+        },
+        () => window.open("", "_blank"),
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo abrir el PDF.");
     }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
   const allocationsForInvoice = (invoiceId: string) =>
@@ -499,7 +555,7 @@ function InvoicesPage() {
                   </TableRow>
                 )}
                 {filtered.map((invoice) => {
-                  const project = projectMap[invoice.project_id];
+                  const invoiceProjectLines = invoiceProjectsByInvoice[invoice.id] ?? [];
                   return (
                     <TableRow key={invoice.id}>
                       <TableCell>
@@ -513,15 +569,21 @@ function InvoicesPage() {
                       <TableCell>{formatDate(invoice.issue_date)}</TableCell>
                       <TableCell>
                         <div>{clientMap[invoice.client_id] ?? "—"}</div>
-                        {project && (
-                          <Link
-                            to="/proyectos/$id"
-                            params={{ id: project.id }}
-                            className="text-xs text-muted-foreground hover:underline"
-                          >
-                            {project.code} — {project.name}
-                          </Link>
-                        )}
+                        <div className="space-y-0.5">
+                          {invoiceProjectLines.map((line) => {
+                            const project = projectMap[line.project_id];
+                            return project ? (
+                              <Link
+                                key={line.project_id}
+                                to="/proyectos/$id"
+                                params={{ id: project.id }}
+                                className="block text-xs text-muted-foreground hover:underline"
+                              >
+                                {project.code} — {project.name}
+                              </Link>
+                            ) : null;
+                          })}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge variant={invoice.status === "cancelled" ? "secondary" : "outline"}>
@@ -569,7 +631,7 @@ function InvoicesPage() {
                                 variant="ghost"
                                 size="icon"
                                 title="Editar"
-                                onClick={() => setEditing(invoice)}
+                                onClick={() => startEdit(invoice)}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -635,7 +697,8 @@ function InvoicesPage() {
         {currentViewing && (
           <InvoiceDetails
             invoice={currentViewing}
-            project={projectMap[currentViewing.project_id]}
+            projects={invoiceProjectsByInvoice[currentViewing.id] ?? []}
+            projectMap={projectMap}
             clientName={clientMap[currentViewing.client_id]}
             allocations={allocationsForInvoice(currentViewing.id)}
             collections={collectionMap}
@@ -653,13 +716,19 @@ function InvoicesPage() {
         {currentAllocating && (
           <AllocationDialog
             invoice={currentAllocating}
+            projects={invoiceProjectsByInvoice[currentAllocating.id] ?? []}
+            projectMap={projectMap}
             collections={collections}
             allocations={allocationsForInvoice(currentAllocating.id)}
             collectionMap={collectionMap}
             adding={addAllocation.isPending}
             removing={removeAllocationMutation.isPending}
-            onAdd={(collectionId, amount) =>
-              addAllocation.mutate({ invoiceId: currentAllocating.id, collectionId, amount })
+            onAdd={(collectionId, projectAmounts) =>
+              addAllocation.mutate({
+                invoiceId: currentAllocating.id,
+                collectionId,
+                projects: projectAmounts,
+              })
             }
             onRemove={(id) => removeAllocationMutation.mutate(id)}
           />
@@ -738,17 +807,62 @@ function InvoiceForm({
   saving: boolean;
   onSubmit: () => void;
 }) {
-  const clientMap = Object.fromEntries(clients.map((client) => [client.id, client.name]));
   const set = (key: keyof InvoiceDraft, value: unknown) => setDraft({ ...draft, [key]: value });
-  const project = projects.find((item) => item.id === draft.project_id);
   const hasBreakdown =
     draft.net_amount !== "" &&
     draft.net_amount != null &&
     draft.vat_amount !== "" &&
     draft.vat_amount != null;
-  const calculatedTotal = hasBreakdown
-    ? Number(draft.net_amount) + Number(draft.vat_amount)
-    : Number(draft.total_amount || 0);
+  const calculatedTotal =
+    Math.round(
+      (hasBreakdown
+        ? Number(draft.net_amount) + Number(draft.vat_amount)
+        : Number(draft.total_amount || 0)) * 100,
+    ) / 100;
+  const selectedProjects = draft.project_allocations
+    .map((line) => projects.find((project) => project.id === line.project_id))
+    .filter((project): project is ProjectMin => Boolean(project));
+  const selectedCurrency = selectedProjects[0]?.currency ?? draft.currency ?? "ARS";
+  const availableProjects = projects.filter(
+    (project) =>
+      project.client_id === draft.client_id &&
+      (selectedProjects.length === 0 || project.currency === selectedCurrency),
+  );
+  const distributedTotal = draft.project_allocations.reduce(
+    (sum, line) => sum + Number(line.amount || 0),
+    0,
+  );
+  const distributionDifference = Math.round((calculatedTotal - distributedTotal) * 100) / 100;
+
+  const toggleProject = (project: ProjectMin, checked: boolean) => {
+    const projectAllocations = checked
+      ? [
+          ...draft.project_allocations,
+          {
+            project_id: project.id,
+            amount:
+              draft.project_allocations.length === 0 && calculatedTotal > 0 ? calculatedTotal : "",
+          },
+        ]
+      : draft.project_allocations.filter((line) => line.project_id !== project.id);
+    const primary = projects.find((item) => item.id === projectAllocations[0]?.project_id);
+    setDraft({
+      ...draft,
+      project_allocations: projectAllocations,
+      project_id: primary?.id,
+      client_id: primary?.client_id ?? draft.client_id,
+      currency: primary?.currency ?? draft.currency,
+    });
+  };
+
+  const setProjectAmount = (projectId: string, amount: string) => {
+    setDraft({
+      ...draft,
+      project_allocations: draft.project_allocations.map((line) =>
+        line.project_id === projectId ? { ...line, amount } : line,
+      ),
+    });
+  };
 
   return (
     <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
@@ -763,34 +877,33 @@ function InvoiceForm({
         className="space-y-4"
       >
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Proyecto / obra *">
+          <Field label="Cliente *">
             <Select
-              value={draft.project_id ?? ""}
+              value={draft.client_id ?? ""}
               onValueChange={(value) => {
-                const selected = projects.find((item) => item.id === value);
                 setDraft({
                   ...draft,
-                  project_id: value,
-                  client_id: selected?.client_id,
-                  currency: selected?.currency ?? "ARS",
+                  client_id: value,
+                  project_id: undefined,
+                  project_allocations: [],
                 });
               }}
               disabled={Boolean(draft.id && Number(draft.allocated_amount) > 0)}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Seleccionar proyecto" />
+                <SelectValue placeholder="Seleccionar cliente" />
               </SelectTrigger>
               <SelectContent>
-                {projects.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.code} — {item.name}
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Cliente">
-            <Input value={project ? (clientMap[project.client_id] ?? "") : ""} readOnly disabled />
+          <Field label="Moneda de los proyectos *">
+            <Input value={selectedCurrency} readOnly disabled />
           </Field>
           <Field label="Tipo de comprobante *">
             <Select
@@ -846,17 +959,6 @@ function InvoiceForm({
               onChange={(event) => set("due_date", event.target.value)}
             />
           </Field>
-          <Field label="Moneda del proyecto *">
-            <Select value={project?.currency ?? "ARS"} onValueChange={() => undefined} disabled>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ARS">Pesos (ARS)</SelectItem>
-                <SelectItem value="USD">Dólares (USD)</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
           <Field label="Importe neto (opcional)">
             <Input
               type="number"
@@ -886,6 +988,62 @@ function InvoiceForm({
               required
             />
           </Field>
+        </div>
+        <div className="space-y-3 rounded-md border p-3">
+          <div>
+            <div className="text-sm font-medium">Desglose por proyecto *</div>
+            <p className="text-xs text-muted-foreground">
+              Seleccioná una o más obras del mismo cliente y moneda. La suma debe coincidir con el
+              total de la factura.
+            </p>
+          </div>
+          {!draft.client_id && (
+            <p className="text-sm text-muted-foreground">Seleccioná primero un cliente.</p>
+          )}
+          {draft.client_id && availableProjects.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No hay proyectos compatibles para el cliente y la moneda seleccionados.
+            </p>
+          )}
+          {availableProjects.map((project) => {
+            const line = draft.project_allocations.find((item) => item.project_id === project.id);
+            return (
+              <div
+                key={project.id}
+                className="grid items-center gap-3 rounded-md border p-2 sm:grid-cols-[1fr_12rem]"
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={Boolean(line)}
+                    onCheckedChange={(checked) => toggleProject(project, checked === true)}
+                  />
+                  <span>
+                    {project.code} — {project.name}
+                  </span>
+                </label>
+                <Input
+                  aria-label={`Importe para ${project.code}`}
+                  type="number"
+                  min={0.01}
+                  step="0.01"
+                  disabled={!line}
+                  value={line?.amount ?? ""}
+                  onChange={(event) => setProjectAmount(project.id, event.target.value)}
+                  placeholder="Importe"
+                />
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap justify-between gap-2 text-sm">
+            <span>Distribuido: {formatARS(distributedTotal, selectedCurrency)}</span>
+            <span
+              className={distributionDifference === 0 ? "text-emerald-600" : "text-destructive"}
+            >
+              {distributionDifference === 0
+                ? "La suma coincide con el total"
+                : `Diferencia: ${formatARS(distributionDifference, selectedCurrency)}`}
+            </span>
+          </div>
         </div>
         <Field label="Concepto / descripción *">
           <Textarea
@@ -940,14 +1098,16 @@ function InvoiceForm({
 
 function InvoiceDetails({
   invoice,
-  project,
+  projects,
+  projectMap,
   clientName,
   allocations,
   collections,
   onOpenPdf,
 }: {
   invoice: InvoiceBalance;
-  project?: ProjectMin;
+  projects: InvoiceProjectBalance[];
+  projectMap: Record<string, ProjectMin>;
   clientName?: string;
   allocations: InvoiceAllocation[];
   collections: Record<string, CollectionAllocationSummary>;
@@ -965,7 +1125,10 @@ function InvoiceDetails({
         />
         <Data label="Estado" value={invoiceStatusLabel[invoice.status]} />
         <Data label="Cliente" value={clientName ?? "—"} />
-        <Data label="Proyecto" value={project ? `${project.code} — ${project.name}` : "—"} />
+        <Data
+          label="Proyectos"
+          value={projects.length === 1 ? "1 proyecto" : `${projects.length} proyectos`}
+        />
         <Data label="Emisión" value={formatDate(invoice.issue_date)} />
         <Data label="Vencimiento" value={formatDate(invoice.due_date)} />
         <Data
@@ -1004,6 +1167,33 @@ function InvoiceDetails({
       </div>
       <Data label="Concepto" value={invoice.concept} />
       <Data label="Observaciones" value={invoice.notes || "—"} />
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium">Desglose por proyecto</h3>
+        {projects.map((line) => {
+          const project = projectMap[line.project_id];
+          return (
+            <div key={line.project_id} className="rounded-md border p-3 text-sm">
+              <div className="font-medium">
+                {project ? `${project.code} — ${project.name}` : line.project_id}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <Data
+                  label="Facturado"
+                  value={formatARS(Number(line.project_amount), invoice.currency)}
+                />
+                <Data
+                  label="Cobrado"
+                  value={formatARS(Number(line.allocated_amount), invoice.currency)}
+                />
+                <Data
+                  label="Pendiente"
+                  value={formatARS(Number(line.balance_due), invoice.currency)}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
       {invoice.pdf_path && (
         <Button variant="outline" onClick={onOpenPdf}>
           <FileText className="mr-2 h-4 w-4" /> Abrir PDF privado
@@ -1023,6 +1213,9 @@ function InvoiceDetails({
               >
                 <span>
                   {formatDate(collection?.collection_date)} · {collection?.description || "Cobro"}
+                  {projectMap[allocation.project_id]
+                    ? ` · ${projectMap[allocation.project_id].code}`
+                    : ""}
                 </span>
                 <span className="font-medium">
                   {formatARS(Number(allocation.amount), invoice.currency)}
@@ -1038,6 +1231,8 @@ function InvoiceDetails({
 
 function AllocationDialog({
   invoice,
+  projects,
+  projectMap,
   collections,
   allocations,
   collectionMap,
@@ -1047,22 +1242,33 @@ function AllocationDialog({
   onRemove,
 }: {
   invoice: InvoiceBalance;
+  projects: InvoiceProjectBalance[];
+  projectMap: Record<string, ProjectMin>;
   collections: CollectionAllocationSummary[];
   allocations: InvoiceAllocation[];
   collectionMap: Record<string, CollectionAllocationSummary>;
   adding: boolean;
   removing: boolean;
-  onAdd: (collectionId: string, amount: number) => void;
+  onAdd: (collectionId: string, projects: { project_id: string; amount: number }[]) => void;
   onRemove: (id: string) => void;
 }) {
   const [collectionId, setCollectionId] = useState("");
-  const [amount, setAmount] = useState("");
-  const alreadyLinked = new Set(allocations.map((allocation) => allocation.collection_id));
-  const eligible = collections.filter(
-    (collection) => maximumAllocation(invoice, collection) > 0 && !alreadyLinked.has(collection.id),
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const eligible = collections.filter((collection) =>
+    projects.some((project) => maximumProjectAllocation(invoice, project, collection) > 0),
   );
   const selected = collectionMap[collectionId];
-  const maximum = selected ? maximumAllocation(invoice, selected) : 0;
+  const requestedTotal = Object.values(amounts).reduce(
+    (sum, amount) => sum + Number(amount || 0),
+    0,
+  );
+  const availableFromCollection = Number(selected?.unallocated_amount ?? 0);
+  const requestedProjects = projects
+    .map((project) => ({
+      project_id: project.project_id,
+      amount: Number(amounts[project.project_id] || 0),
+    }))
+    .filter((project) => project.amount > 0);
 
   return (
     <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
@@ -1085,7 +1291,7 @@ function AllocationDialog({
             value={collectionId}
             onValueChange={(value) => {
               setCollectionId(value);
-              setAmount("");
+              setAmounts({});
             }}
           >
             <SelectTrigger>
@@ -1103,35 +1309,73 @@ function AllocationDialog({
         </Field>
         {eligible.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            No hay cobros compatibles con saldo disponible para este proyecto, cliente y moneda.
+            No hay cobros compatibles con saldo disponible para este cliente y moneda.
           </p>
         )}
-        <div className="flex items-end gap-2">
-          <Field
-            label={`Importe a imputar${maximum ? ` (máx. ${formatARS(maximum, invoice.currency)})` : ""}`}
-          >
-            <Input
-              type="number"
-              min={0.01}
-              max={maximum || undefined}
-              step="0.01"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-            />
-          </Field>
-          <Button
-            disabled={
-              !selected ||
-              alreadyLinked.has(collectionId) ||
-              !Number(amount) ||
-              Number(amount) > maximum ||
-              adding
-            }
-            onClick={() => onAdd(collectionId, Number(amount))}
-          >
-            <Link2 className="mr-1 h-4 w-4" /> Imputar
-          </Button>
-        </div>
+        {selected && (
+          <div className="space-y-2">
+            {projects.map((projectLine) => {
+              const project = projectMap[projectLine.project_id];
+              const otherRequested = requestedTotal - Number(amounts[projectLine.project_id] || 0);
+              const maximum = Math.max(
+                0,
+                Math.min(Number(projectLine.balance_due), availableFromCollection - otherRequested),
+              );
+              return (
+                <div
+                  key={projectLine.project_id}
+                  className="grid items-end gap-2 sm:grid-cols-[1fr_12rem]"
+                >
+                  <div className="text-sm">
+                    <div>
+                      {project ? `${project.code} — ${project.name}` : projectLine.project_id}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Pendiente {formatARS(Number(projectLine.balance_due), invoice.currency)}
+                    </div>
+                  </div>
+                  <Input
+                    aria-label={`Imputar a ${project?.code ?? projectLine.project_id}`}
+                    type="number"
+                    min={0}
+                    max={maximum || undefined}
+                    step="0.01"
+                    value={amounts[projectLine.project_id] ?? ""}
+                    onChange={(event) =>
+                      setAmounts((current) => ({
+                        ...current,
+                        [projectLine.project_id]: event.target.value,
+                      }))
+                    }
+                    placeholder={`Máx. ${formatARS(maximum, invoice.currency)}`}
+                  />
+                </div>
+              );
+            })}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+              <span className="text-sm text-muted-foreground">
+                Total a imputar: {formatARS(requestedTotal, invoice.currency)} de{" "}
+                {formatARS(availableFromCollection, invoice.currency)} disponibles
+              </span>
+              <Button
+                disabled={
+                  requestedProjects.length === 0 ||
+                  requestedTotal > availableFromCollection ||
+                  requestedProjects.some((requested) => {
+                    const line = projects.find(
+                      (project) => project.project_id === requested.project_id,
+                    );
+                    return !line || requested.amount > Number(line.balance_due);
+                  }) ||
+                  adding
+                }
+                onClick={() => onAdd(collectionId, requestedProjects)}
+              >
+                <Link2 className="mr-1 h-4 w-4" /> Imputar distribución
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Imputaciones actuales</h3>
@@ -1151,6 +1395,9 @@ function AllocationDialog({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {paymentMethodLabel[collection?.payment_method ?? ""] ?? ""}
+                  {projectMap[allocation.project_id]
+                    ? ` · ${projectMap[allocation.project_id].code}`
+                    : ""}
                 </div>
               </div>
               <div className="flex items-center gap-2">

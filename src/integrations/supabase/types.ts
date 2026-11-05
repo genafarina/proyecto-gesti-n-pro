@@ -135,6 +135,7 @@ export type Database = {
           created_by: string | null
           id: string
           invoice_id: string
+          project_id: string
           updated_at: string
         }
         Insert: {
@@ -144,6 +145,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           invoice_id: string
+          project_id: string
           updated_at?: string
         }
         Update: {
@@ -153,6 +155,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           invoice_id?: string
+          project_id?: string
           updated_at?: string
         }
         Relationships: [
@@ -182,6 +185,52 @@ export type Database = {
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "invoice_balances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_allocations_project_fkey"
+            columns: ["invoice_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_projects"
+            referencedColumns: ["invoice_id", "project_id"]
+          },
+        ]
+      }
+      invoice_projects: {
+        Row: {
+          amount: number
+          created_at: string
+          invoice_id: string
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          invoice_id: string
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          invoice_id?: string
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_projects_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_projects_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -734,6 +783,8 @@ export type Database = {
           pdf_path: string | null
           point_of_sale: string | null
           project_id: string | null
+          project_count: number | null
+          project_ids: string[] | null
           status: string | null
           total_amount: number | null
           updated_at: string | null
@@ -756,8 +807,51 @@ export type Database = {
           },
         ]
       }
+      invoice_project_balances: {
+        Row: {
+          allocated_amount: number | null
+          balance_due: number | null
+          client_id: string | null
+          concept: string | null
+          currency: Database["public"]["Enums"]["currency_code"] | null
+          document_type: string | null
+          due_date: string | null
+          invoice_id: string | null
+          invoice_number: string | null
+          issue_date: string | null
+          payment_status: string | null
+          point_of_sale: string | null
+          project_amount: number | null
+          project_id: string | null
+          status: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_projects_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_projects_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      allocate_collection_to_invoice_projects: {
+        Args: {
+          p_collection_id: string
+          p_invoice_id: string
+          p_projects: Json
+        }
+        Returns: undefined
+      }
       create_project_with_code: {
         Args: {
           _actual_end_date?: string
@@ -811,6 +905,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      save_invoice_with_projects: {
+        Args: { p_invoice: Json; p_projects: Json }
+        Returns: string
       }
     }
     Enums: {

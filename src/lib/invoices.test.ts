@@ -5,8 +5,12 @@ import {
   filterInvoices,
   formatInvoiceNumber,
   maximumAllocation,
+  maximumProjectAllocation,
+  openSignedPdf,
+  validateInvoiceProjectBreakdown,
   type CollectionAllocationSummary,
   type InvoiceBalance,
+  type InvoiceProjectBalance,
 } from "./invoices";
 
 const invoice = (overrides: Partial<InvoiceBalance> = {}): InvoiceBalance => ({
@@ -29,6 +33,27 @@ const invoice = (overrides: Partial<InvoiceBalance> = {}): InvoiceBalance => ({
   allocated_amount: 0,
   balance_due: 1_000,
   payment_status: "pending",
+  project_ids: ["project-1"],
+  project_count: 1,
+  ...overrides,
+});
+
+const invoiceProject = (overrides: Partial<InvoiceProjectBalance> = {}): InvoiceProjectBalance => ({
+  invoice_id: "invoice-1",
+  project_id: "project-1",
+  client_id: "client-1",
+  document_type: "C",
+  point_of_sale: "00001",
+  invoice_number: "00000042",
+  issue_date: "2026-11-05",
+  due_date: null,
+  concept: "Certificado de obra",
+  currency: "ARS",
+  status: "issued",
+  project_amount: 600,
+  allocated_amount: 100,
+  balance_due: 500,
+  payment_status: "partial",
   ...overrides,
 });
 
@@ -70,6 +95,7 @@ describe("facturación manual", () => {
         id: "invoice-2",
         client_id: "client-2",
         project_id: "project-2",
+        project_ids: ["project-2"],
         issue_date: "2026-10-01",
         invoice_number: "00000099",
         status: "cancelled",
@@ -87,6 +113,19 @@ describe("facturación manual", () => {
     ).toEqual(["invoice-1"]);
   });
 
+  test("encuentra una factura por cualquiera de sus proyectos", () => {
+    expect(
+      filterInvoices([invoice({ project_ids: ["project-1", "project-2"], project_count: 2 })], {
+        clientId: "all",
+        projectId: "project-2",
+        status: "all",
+        from: "",
+        to: "",
+        number: "",
+      }).map((row) => row.id),
+    ).toEqual(["invoice-1"]);
+  });
+
   test("limita una imputación al menor saldo disponible", () => {
     expect(maximumAllocation(invoice({ balance_due: 1_000 }), collection())).toBe(600);
     expect(
@@ -94,10 +133,39 @@ describe("facturación manual", () => {
     ).toBe(300);
   });
 
-  test("rechaza asociaciones de otro proyecto, cliente o moneda", () => {
-    expect(maximumAllocation(invoice(), collection({ project_id: "project-2" }))).toBe(0);
+  test("permite otro proyecto del cliente pero rechaza cliente o moneda incompatibles", () => {
+    expect(maximumAllocation(invoice(), collection({ project_id: "project-2" }))).toBe(600);
     expect(maximumAllocation(invoice(), collection({ client_id: "client-2" }))).toBe(0);
     expect(maximumAllocation(invoice(), collection({ currency: "USD" }))).toBe(0);
+  });
+
+  test("limita cada distribución al saldo del proyecto dentro de la factura", () => {
+    expect(maximumProjectAllocation(invoice(), invoiceProject(), collection())).toBe(500);
+    expect(
+      maximumProjectAllocation(
+        invoice(),
+        invoiceProject({ balance_due: 900 }),
+        collection({ unallocated_amount: 300 }),
+      ),
+    ).toBe(300);
+  });
+
+  test("valida que el desglose de varios proyectos coincida exactamente con el total", () => {
+    expect(
+      validateInvoiceProjectBreakdown(
+        [
+          { project_id: "project-1", amount: "600.25" },
+          { project_id: "project-2", amount: 399.75 },
+        ],
+        1_000,
+      ),
+    ).toEqual([
+      { project_id: "project-1", amount: 600.25 },
+      { project_id: "project-2", amount: 399.75 },
+    ]);
+    expect(() =>
+      validateInvoiceProjectBreakdown([{ project_id: "project-1", amount: 999.99 }], 1_000),
+    ).toThrow("coincidir exactamente");
   });
 
   test("no permite imputar una factura anulada", () => {
@@ -172,5 +240,38 @@ describe("facturación manual", () => {
     expect(summary.collected).toBe(800);
     expect(summary.invoiced).toBe(1_000);
     expect(summary.allocated).toBe(600);
+  });
+
+  test("abre la pestaña antes de esperar la URL firmada y la cierra si falla", async () => {
+    const events: string[] = [];
+    const preview = {
+      opener: {} as unknown,
+      location: { replace: (url: string) => events.push(`replace:${url}`) },
+      close: () => events.push("close"),
+    };
+
+    await openSignedPdf(
+      async () => {
+        events.push("signed");
+        return "https://signed.example.test/invoice.pdf";
+      },
+      () => {
+        events.push("open");
+        return preview;
+      },
+    );
+
+    expect(events).toEqual(["open", "signed", "replace:https://signed.example.test/invoice.pdf"]);
+    expect(preview.opener).toBeNull();
+
+    await expect(
+      openSignedPdf(
+        async () => {
+          throw new Error("sin permiso");
+        },
+        () => preview,
+      ),
+    ).rejects.toThrow("sin permiso");
+    expect(events.at(-1)).toBe("close");
   });
 });

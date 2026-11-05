@@ -11,20 +11,28 @@ conecta con ARCA y no reemplaza los movimientos de caja existentes.
   débito requieren reglas contables de signo y quedan fuera de esta fase.
 - `invoice_allocations` distribuye importes de `project_collections` entre facturas. Es una relación
   muchos a muchos: admite pagos parciales, varios cobros por factura y un cobro repartido entre
-  varias facturas.
+  varias facturas. Cada fila identifica además la obra de la factura a la que corresponde la
+  distribución contable.
+- `invoice_projects` distribuye exactamente el total de una factura entre una o más obras del mismo
+  cliente y moneda. La suma de sus líneas debe coincidir con el total del comprobante.
 - `invoice_balances` calcula importe imputado, saldo y estado de cobranza. El estado administrativo
   (`issued` o `cancelled`) permanece separado.
+- `invoice_project_balances` muestra facturado, cobrado y pendiente por cada obra sin duplicar la
+  cabecera de la factura.
 - `collection_allocation_summary` calcula cuánto queda disponible en cada cobro. Un cobro sin
   imputaciones funciona como anticipo.
 - Los triggers bloquean sobreasignaciones, combinaciones de cliente/proyecto/moneda inválidas,
   cambios incompatibles en cobros vinculados y la anulación de facturas con imputaciones activas.
-- La factura usa la moneda de su proyecto. Esta fase no permite una moneda distinta porque todavía
-  no existe una conversión registrada y auditable para conciliarla con los cobros del proyecto.
+- Todos los proyectos de una factura usan la moneda de la factura. No se mezclan ARS y USD porque
+  todavía no existe una conversión registrada y auditable.
 - Las imputaciones bloquean las filas de factura y cobro antes de sumar saldos. La creación de
   facturas y los cambios de cliente/moneda del proyecto comparten además un bloqueo transaccional,
   por lo que operaciones simultáneas se serializan antes de validar.
 - Las facturas anuladas no suman en los indicadores. Facturación y caja nunca se suman como si
   fueran el mismo hecho financiero, y ARS/USD siempre se presentan por separado.
+- `project_collections` sigue siendo el único hecho de caja. Distribuir un cobro entre obras crea
+  imputaciones contables, nunca cobros ficticios; por eso el Dashboard cuenta el ingreso real una
+  sola vez.
 - El bucket privado `invoice-documents` admite únicamente PDF de hasta 10 MB. La base guarda una
   ruta de objeto; la aplicación genera una URL firmada de corta duración al abrirlo. La política
   de lectura exige que el objeto siga referenciado por una factura visible, por lo que un PDF
@@ -59,11 +67,9 @@ El build válido para Vercel debe contener `.vercel/output/config.json`, `.verce
 función del servidor generada por Nitro. Ninguno de estos pasos publica en GitHub, Vercel o
 Supabase.
 
-La rama `feature/facturacion-manual` está incluida en el workflow de GitHub Actions, pero tiene el
-Preview deshabilitado específicamente en `vercel.json`. Esto permite ejecutar CI al publicarla sin
-desplegar una aplicación que todavía dependa de una migración ausente en Supabase remoto. El
-bloqueo debe retirarse en un cambio posterior únicamente después de aplicar la migración aprobada
-y comprobar el entorno Preview.
+La rama `feature/facturacion-manual` está incluida en el workflow de GitHub Actions. Toda migración
+nueva debe validarse en CI y aplicarse al entorno correspondiente antes de publicar un Preview que
+dependa de ella.
 
 ## Monedas en el Dashboard
 
@@ -77,6 +83,12 @@ que una fase futura defina una moneda por movimiento o un mecanismo de conversi�
 La migración `20261105090000_add_manual_invoicing.sql` es aditiva. Antes de aplicarla a un entorno
 compartido se debe realizar respaldo y ejecutar primero CI sobre una base limpia. La aplicación
 remota requiere una autorización separada.
+
+La extensión para facturas de varias obras vive exclusivamente en
+`20261105160000_extend_invoicing_multi_project.sql`; no modifica la migración histórica ya aplicada.
+Al ejecutarse, crea una línea `invoice_projects` por cada factura existente y agrega el proyecto a
+cada imputación existente antes de activar las nuevas restricciones. La operación conserva IDs,
+importes, PDF y relaciones previas.
 
 Si fuese necesario revertirla después de haberla aplicado, primero se deben exportar los PDF y los
 registros creados. Luego, en una migración de reversión revisada, se eliminan las políticas y el
