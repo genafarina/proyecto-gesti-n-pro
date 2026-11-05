@@ -127,6 +127,146 @@ export type Database = {
           },
         ]
       }
+      invoice_allocations: {
+        Row: {
+          amount: number
+          collection_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          invoice_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          collection_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          invoice_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          collection_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          invoice_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_allocations_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "project_collections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_allocations_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "collection_allocation_summary"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_allocations_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_allocations_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_balances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoices: {
+        Row: {
+          client_id: string
+          concept: string
+          created_at: string
+          created_by: string | null
+          currency: Database["public"]["Enums"]["currency_code"]
+          document_type: string
+          due_date: string | null
+          id: string
+          invoice_number: string
+          issue_date: string
+          net_amount: number | null
+          notes: string | null
+          pdf_path: string | null
+          point_of_sale: string
+          project_id: string
+          status: string
+          total_amount: number
+          updated_at: string
+          vat_amount: number | null
+        }
+        Insert: {
+          client_id: string
+          concept: string
+          created_at?: string
+          created_by?: string | null
+          currency: Database["public"]["Enums"]["currency_code"]
+          document_type: string
+          due_date?: string | null
+          id?: string
+          invoice_number: string
+          issue_date: string
+          net_amount?: number | null
+          notes?: string | null
+          pdf_path?: string | null
+          point_of_sale: string
+          project_id: string
+          status?: string
+          total_amount: number
+          updated_at?: string
+          vat_amount?: number | null
+        }
+        Update: {
+          client_id?: string
+          concept?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: Database["public"]["Enums"]["currency_code"]
+          document_type?: string
+          due_date?: string | null
+          id?: string
+          invoice_number?: string
+          issue_date?: string
+          net_amount?: number | null
+          notes?: string | null
+          pdf_path?: string | null
+          point_of_sale?: string
+          project_id?: string
+          status?: string
+          total_amount?: number
+          updated_at?: string
+          vat_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_accounts: {
         Row: {
           active: boolean
@@ -450,6 +590,7 @@ export type Database = {
           estimated_amount: number
           estimated_cost: number
           id: string
+          legacy_code: string | null
           manager_id: string | null
           name: string
           notes: string | null
@@ -472,6 +613,7 @@ export type Database = {
           estimated_amount?: number
           estimated_cost?: number
           id?: string
+          legacy_code?: string | null
           manager_id?: string | null
           name: string
           notes?: string | null
@@ -494,6 +636,7 @@ export type Database = {
           estimated_amount?: number
           estimated_cost?: number
           id?: string
+          legacy_code?: string | null
           manager_id?: string | null
           name?: string
           notes?: string | null
@@ -536,7 +679,83 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      collection_allocation_summary: {
+        Row: {
+          allocated_amount: number | null
+          amount: number | null
+          client_id: string | null
+          collection_date: string | null
+          created_at: string | null
+          created_by: string | null
+          currency: Database["public"]["Enums"]["currency_code"] | null
+          description: string | null
+          id: string | null
+          notes: string | null
+          payment_account_id: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          project_id: string | null
+          unallocated_amount: number | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_collections_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_collections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_balances: {
+        Row: {
+          allocated_amount: number | null
+          balance_due: number | null
+          client_id: string | null
+          concept: string | null
+          created_at: string | null
+          created_by: string | null
+          currency: Database["public"]["Enums"]["currency_code"] | null
+          document_type: string | null
+          due_date: string | null
+          id: string | null
+          invoice_number: string | null
+          issue_date: string | null
+          net_amount: number | null
+          notes: string | null
+          payment_status: string | null
+          pdf_path: string | null
+          point_of_sale: string | null
+          project_id: string | null
+          status: string | null
+          total_amount: number | null
+          updated_at: string | null
+          vat_amount: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       create_project_with_code: {
@@ -568,6 +787,7 @@ export type Database = {
           estimated_amount: number
           estimated_cost: number
           id: string
+          legacy_code: string | null
           manager_id: string | null
           name: string
           notes: string | null

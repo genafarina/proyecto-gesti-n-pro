@@ -8,6 +8,7 @@ import {
   Receipt,
   HandCoins,
   Banknote,
+  FileText,
   Settings,
   LogOut,
   Menu,
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/gastos", label: "Gastos", icon: Receipt },
   { to: "/gastos-generales", label: "Gastos Generales", icon: HandCoins },
   { to: "/cobros", label: "Cobros", icon: Banknote },
+  { to: "/facturacion", label: "Facturación", icon: FileText },
   { to: "/configuracion", label: "Configuración", icon: Settings },
 ] as const;
 
@@ -35,6 +37,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/gastos": "Gastos",
   "/gastos-generales": "Gastos Generales",
   "/cobros": "Cobros",
+  "/facturacion": "Facturación",
   "/configuracion": "Configuración",
 };
 
