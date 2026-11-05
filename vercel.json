@@ -1,9 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "tanstack-start",
-  "git": {
-    "deploymentEnabled": {
-      "feature/facturacion-manual": false
-    }
-  }
+  "framework": "tanstack-start"
 }
