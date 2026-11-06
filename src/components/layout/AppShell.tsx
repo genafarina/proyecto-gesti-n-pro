@@ -107,8 +107,8 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-screen flex w-full bg-muted/30">
-      <aside className="hidden md:flex w-60 shrink-0">{SidebarInner}</aside>
+    <div className="min-h-screen w-full bg-muted/30 md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="hidden w-60 md:flex">{SidebarInner}</aside>
 
       {/* Mobile sidebar */}
       {mobileOpen && (
@@ -129,8 +129,8 @@ export function AppShell({
         </div>
       )}
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="h-14 bg-card border-b flex items-center px-4 gap-3 sticky top-0 z-20">
+      <div className="flex w-full min-w-0 flex-col">
+        <header className="sticky top-0 z-20 flex h-14 w-full items-center gap-3 border-b bg-card px-4">
           <Button
             variant="ghost"
             size="icon"
