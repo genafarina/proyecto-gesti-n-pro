@@ -33,7 +33,16 @@ import {
   isOverdueProject,
   isOverdueTask,
 } from "@/lib/finance";
-import { calculateDashboardPeriodSummary, type DashboardPeriod } from "@/lib/dashboardFinance";
+import {
+  calculateDashboardPeriodSummary,
+  filterProjectRowsByCurrency,
+  type DashboardPeriod,
+} from "@/lib/dashboardFinance";
+import {
+  buildCurrencyFinancialSummary,
+  type CollectionAllocationSummary,
+  type InvoiceBalance,
+} from "@/lib/invoices";
 import { projectStatusLabel, projectStatusVariant } from "@/lib/labels";
 import {
   Activity,
@@ -44,6 +53,7 @@ import {
   CircleDollarSign,
   Clock,
   FolderKanban,
+  FileText,
   Landmark,
   Receipt,
   TrendingUp,
@@ -74,7 +84,16 @@ function Dashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
-      const [clients, projects, tasks, expenses, collections, generalExpenses] = await Promise.all([
+      const [
+        clients,
+        projects,
+        tasks,
+        expenses,
+        collections,
+        generalExpenses,
+        invoices,
+        allocationSummary,
+      ] = await Promise.all([
         supabase.from("clients").select("id,status"),
         supabase
           .from("projects")
@@ -87,6 +106,8 @@ function Dashboard() {
         supabase.from("project_expenses").select("id,project_id,amount,expense_date"),
         supabase.from("project_collections").select("id,project_id,amount,collection_date"),
         supabase.from("general_expenses").select("id,amount,expense_date,expense_type,status"),
+        supabase.from("invoice_balances").select("*"),
+        supabase.from("collection_allocation_summary").select("*"),
       ]);
 
       const error =
@@ -95,7 +116,9 @@ function Dashboard() {
         tasks.error ??
         expenses.error ??
         collections.error ??
-        generalExpenses.error;
+        generalExpenses.error ??
+        invoices.error ??
+        allocationSummary.error;
       if (error) throw error;
 
       return {
@@ -105,6 +128,9 @@ function Dashboard() {
         expenses: expenses.data ?? [],
         collections: collections.data ?? [],
         generalExpenses: generalExpenses.data ?? [],
+        invoices: (invoices.data ?? []) as unknown as InvoiceBalance[],
+        allocationSummary: (allocationSummary.data ??
+          []) as unknown as CollectionAllocationSummary[],
       };
     },
   });
@@ -117,19 +143,35 @@ function Dashboard() {
     },
   });
 
-  const financialSummary = useMemo(
-    () =>
-      calculateDashboardPeriodSummary(
-        data?.collections ?? [],
-        data?.expenses ?? [],
+  const financialSummaries = useMemo(
+    () => ({
+      ARS: calculateDashboardPeriodSummary(
+        filterProjectRowsByCurrency(data?.collections ?? [], data?.projects ?? [], "ARS"),
+        filterProjectRowsByCurrency(data?.expenses ?? [], data?.projects ?? [], "ARS"),
         data?.generalExpenses ?? [],
-        {
-          period,
-          customFrom,
-          customTo,
-        },
+        { period, customFrom, customTo },
       ),
+      USD: calculateDashboardPeriodSummary(
+        filterProjectRowsByCurrency(data?.collections ?? [], data?.projects ?? [], "USD"),
+        filterProjectRowsByCurrency(data?.expenses ?? [], data?.projects ?? [], "USD"),
+        [],
+        { period, customFrom, customTo },
+      ),
+    }),
     [customFrom, customTo, data, period],
+  );
+
+  const financialSummary = financialSummaries.ARS;
+  const usdProjectSummary = financialSummaries.USD;
+
+  const invoicingSummary = useMemo(
+    () =>
+      buildCurrencyFinancialSummary(
+        data?.projects ?? [],
+        data?.invoices ?? [],
+        data?.allocationSummary ?? [],
+      ),
+    [data],
   );
 
   if (isLoading || !data) return <div className="text-sm text-muted-foreground">Cargando...</div>;
@@ -164,7 +206,8 @@ function Dashboard() {
             <div>
               <CardTitle className="text-base">Período del Dashboard</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Este filtro se aplica a todos los indicadores financieros.
+                Este filtro se aplica al resumen financiero del período; la facturación se muestra
+                acumulada y separada por moneda.
               </p>
             </div>
           </div>
@@ -217,9 +260,10 @@ function Dashboard() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold">Resumen financiero del período</h2>
+          <h2 className="text-lg font-semibold">Resumen financiero ARS del período</h2>
           <p className="text-sm text-muted-foreground">
-            {periodLabel[period]}. Los gastos pendientes están incluidos; los anulados no suman.
+            {periodLabel[period]}. Los gastos generales no tienen moneda propia en el modelo actual
+            y se conservan en ARS; los pendientes están incluidos y los anulados no suman.
           </p>
         </div>
 
@@ -287,6 +331,92 @@ function Dashboard() {
             value={formatARS(financialSummary.pendingGeneralExpenses)}
             tone={financialSummary.pendingGeneralExpenses > 0 ? "warn" : undefined}
           />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Resultado de proyectos USD del período</h2>
+          <p className="text-sm text-muted-foreground">
+            Se muestra separado y sin convertir ni descontar gastos generales en ARS.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <KpiCard
+            icon={TrendingUp}
+            label="Resultado de proyectos USD"
+            value={formatARS(usdProjectSummary.projectResult, "USD")}
+            detail="Cobros menos gastos de proyectos USD"
+            tone={usdProjectSummary.projectResult >= 0 ? "ok" : "warn"}
+          />
+          <KpiCard
+            icon={Banknote}
+            label="Cobrado de proyectos USD"
+            value={formatARS(usdProjectSummary.totalProjectCollections, "USD")}
+            tone="ok"
+          />
+          <KpiCard
+            icon={Receipt}
+            label="Gastos de proyectos USD"
+            value={formatARS(usdProjectSummary.totalProjectExpenses, "USD")}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Facturación y cobranzas acumuladas</h2>
+          <p className="text-sm text-muted-foreground">
+            Se muestran por moneda. Facturar no se contabiliza como ingreso de caja.
+          </p>
+        </div>
+        <div className="grid gap-4 xl:grid-cols-2">
+          {invoicingSummary.map((summary) => (
+            <Card key={summary.currency}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Resumen {summary.currency}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <KpiCard
+                  icon={BriefcaseBusiness}
+                  label="Monto contratado"
+                  value={formatARS(summary.contracted, summary.currency)}
+                />
+                <KpiCard
+                  icon={FileText}
+                  label="Total facturado"
+                  value={formatARS(summary.invoiced, summary.currency)}
+                />
+                <KpiCard
+                  icon={Banknote}
+                  label="Total cobrado"
+                  value={formatARS(summary.collected, summary.currency)}
+                  tone="ok"
+                />
+                <KpiCard
+                  icon={Clock}
+                  label="Saldo de facturas"
+                  value={formatARS(summary.invoiceBalance, summary.currency)}
+                  tone={summary.invoiceBalance > 0 ? "warn" : undefined}
+                />
+                <KpiCard
+                  icon={WalletCards}
+                  label="Cobros no imputados"
+                  value={formatARS(summary.unallocated, summary.currency)}
+                  detail="Anticipos o cobros aún sin factura"
+                />
+                <KpiCard
+                  icon={CircleDollarSign}
+                  label="Contrato sin facturar"
+                  value={formatARS(
+                    Math.max(summary.contracted - summary.invoiced, 0),
+                    summary.currency,
+                  )}
+                  detail="Diferente del saldo pendiente de facturas"
+                />
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </section>
 

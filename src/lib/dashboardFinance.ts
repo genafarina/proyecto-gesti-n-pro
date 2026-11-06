@@ -14,14 +14,29 @@ export type PeriodDateRange = {
 };
 
 export type ProjectCollectionForDashboard = {
+  project_id: string;
   amount: number | string;
   collection_date: string;
 };
 
 export type ProjectExpenseForDashboard = {
+  project_id: string;
   amount: number | string;
   expense_date: string;
 };
+
+export type DashboardProjectCurrency = "ARS" | "USD";
+
+export function filterProjectRowsByCurrency<T extends { project_id: string }>(
+  rows: T[],
+  projects: { id: string; currency: DashboardProjectCurrency }[],
+  currency: DashboardProjectCurrency,
+) {
+  const projectIds = new Set(
+    projects.filter((project) => project.currency === currency).map((project) => project.id),
+  );
+  return rows.filter((row) => projectIds.has(row.project_id));
+}
 
 export type GeneralExpenseForDashboard = {
   amount: number | string;

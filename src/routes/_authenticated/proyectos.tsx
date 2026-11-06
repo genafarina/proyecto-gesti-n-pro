@@ -29,6 +29,7 @@ export const Route = createFileRoute("/_authenticated/proyectos")({
 
 type Project = {
   id: string; client_id: string; name: string; code: string; project_number: number;
+  legacy_code: string | null;
   description: string | null;
   status: string; planned_start_date: string | null; planned_end_date: string | null;
   actual_start_date: string | null; actual_end_date: string | null;
@@ -88,6 +89,7 @@ function ProyectosPage() {
         actual_start_date: p.actual_start_date || null, actual_end_date: p.actual_end_date || null,
         estimated_amount: num(p.estimated_amount), contracted_amount: num(p.contracted_amount),
         estimated_cost: num(p.estimated_cost), currency: (p.currency ?? "ARS") as Project["currency"],
+        legacy_code: p.legacy_code?.trim() || null,
         notes: p.notes || null,
       };
       if (p.id) {
@@ -197,7 +199,10 @@ function ProyectosPage() {
                   const overdue = isOverdueProject(p);
                   return (
                     <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs">{p.code}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        <div>{p.code}</div>
+                        {p.legacy_code && <div className="text-muted-foreground">Hist.: {p.legacy_code}</div>}
+                      </TableCell>
                       <TableCell className="font-medium">
                         <Link to="/proyectos/$id" params={{ id: p.id }} className="hover:underline">
                           {p.name}
@@ -300,6 +305,11 @@ function ProjectForm({
           <Field label={p.id ? "Código" : "Próximo código"}>
             <Input value={codeShown} readOnly disabled className="font-mono uppercase bg-muted/40" placeholder="Seleccioná un cliente" />
           </Field>
+          {p.id && (
+            <Field label="Código histórico">
+              <Input value={p.legacy_code ?? ""} onChange={(e) => set("legacy_code", e.target.value)} placeholder="Ej.: OB-001" />
+            </Field>
+          )}
           <Field label="Nombre del proyecto *"><Input value={p.name ?? ""} onChange={(e) => set("name", e.target.value)} required /></Field>
           <Field label="Estado">
             <Select value={p.status ?? "quoted"} onValueChange={(v) => set("status", v)}>

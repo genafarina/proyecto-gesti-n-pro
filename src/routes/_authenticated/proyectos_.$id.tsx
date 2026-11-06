@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ExpenseForm } from "./gastos";
 import { CollectionForm } from "./cobros";
+import { ProjectInvoicesSection } from "@/components/invoices/ProjectInvoicesSection";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -135,7 +136,7 @@ function ProjectDetail() {
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar proyecto</AlertDialogTitle>
             <AlertDialogDescription>
-              Se eliminarán también todas sus etapas, tareas, gastos y cobros. Esta acción no se puede deshacer.
+              Se eliminarán también sus etapas, tareas, gastos y cobros. Las facturas registradas bloquean la eliminación para preservar el historial. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -169,6 +170,7 @@ function ProjectDetail() {
           <TabsTrigger value="tareas">Tareas</TabsTrigger>
           <TabsTrigger value="gastos">Gastos</TabsTrigger>
           <TabsTrigger value="cobros">Cobros</TabsTrigger>
+          <TabsTrigger value="facturas">Facturas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="resumen" className="space-y-4 mt-4">
@@ -179,6 +181,7 @@ function ProjectDetail() {
               <Data label="Estado" value={projectStatusLabel[project.status]} />
               <Data label="Moneda" value={project.currency} />
               <Data label="Código" value={project.code ?? "—"} />
+              <Data label="Código histórico" value={project.legacy_code ?? "—"} />
               <Data label="Inicio previsto" value={formatDate(project.planned_start_date)} />
               <Data label="Fin previsto" value={formatDate(project.planned_end_date)} />
               <Data label="Inicio real" value={formatDate(project.actual_start_date)} />
@@ -207,7 +210,7 @@ function ProjectDetail() {
                 <Data label="Total contratado" value={formatARS(contracted, project.currency)} />
                 <Data label="Total cobrado" value={formatARS(collected, project.currency)} />
                 <Data label="Total gastado" value={formatARS(spent, project.currency)} />
-                <Data label="Pendiente de cobro" value={formatARS(pending, project.currency)} />
+                <Data label="Saldo contractual pendiente" value={formatARS(pending, project.currency)} />
                 <Data label="Resultado actual" value={formatARS(result, project.currency)} valueClass={result >= 0 ? "text-success" : "text-destructive"} />
                 <Data label="Margen actual" value={formatPct(marginPct)} valueClass={marginPct >= 0 ? "text-success" : "text-destructive"} />
                 <Data label="Margen estimado" value={formatARS(estMargin, project.currency)} />
@@ -228,6 +231,9 @@ function ProjectDetail() {
         </TabsContent>
         <TabsContent value="cobros" className="mt-4">
           <CollectionsSection projectId={id} clientId={project.client_id} collections={collections} currency={project.currency} />
+        </TabsContent>
+        <TabsContent value="facturas" className="mt-4">
+          <ProjectInvoicesSection project={project} />
         </TabsContent>
       </Tabs>
     </div>
@@ -573,6 +579,7 @@ function ExpensesSection({ projectId, expenses, currency }: { projectId: string;
 type Collection = {
   id?: string; project_id: string; client_id: string; collection_date: string;
   amount: number | string; payment_method: string; description: string | null; notes: string | null;
+  payment_account_id: string | null;
 };
 
 function CollectionsSection({ projectId, clientId, collections, currency }: { projectId: string; clientId: string; collections: Collection[]; currency: string }) {
@@ -586,6 +593,9 @@ function CollectionsSection({ projectId, clientId, collections, currency }: { pr
     qc.invalidateQueries({ queryKey: ["all-collections"] });
     qc.invalidateQueries({ queryKey: ["dashboard"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
+    qc.invalidateQueries({ queryKey: ["invoice-balances"] });
+    qc.invalidateQueries({ queryKey: ["collection-allocation-summary"] });
+    qc.invalidateQueries({ queryKey: ["project-collection-allocation-summary", projectId] });
   };
 
   const save = useMutation({
@@ -597,6 +607,7 @@ function CollectionsSection({ projectId, clientId, collections, currency }: { pr
       const payload = {
         project_id: projectId, client_id: clientId, collection_date: c.collection_date,
         amount: amt, payment_method: c.payment_method,
+        payment_account_id: c.payment_account_id || null,
         description: c.description || null, notes: c.notes || null,
       };
       if (c.id) { const { error } = await supabase.from("project_collections").update(payload as never).eq("id", c.id); if (error) throw error; }

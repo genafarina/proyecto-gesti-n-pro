@@ -14,6 +14,10 @@ Los cambios se validan en una rama y mediante un pull request antes de llegar a 
 debe usar despliegues Preview para las ramas; producción queda asociada a `main` cuando la
 migración haya sido aprobada.
 
+La rama `feature/facturacion-manual` es una excepción temporal: ejecuta CI al publicarse, pero su
+Preview está deshabilitado en `vercel.json` hasta que la migración de facturación esté disponible en
+el Supabase de Preview.
+
 ## Desarrollo local
 
 Requisitos:
@@ -30,6 +34,7 @@ bun run dev
 Comprobaciones de la aplicación:
 
 ```bash
+bun run test
 bun run typecheck
 bun run lint
 bun run build
@@ -49,10 +54,14 @@ Validación local, sin conectarse a ninguna base remota:
 ```bash
 supabase db start
 supabase db lint --local --fail-on error
+supabase test db
 ```
 
 El workflow de CI ejecuta la misma validación sobre una base efímera y también comprueba
-TypeScript, lint y build.
+las pruebas automatizadas, TypeScript, lint y build.
+
+La arquitectura, las reglas de integridad y el procedimiento de prueba de la facturación manual
+están documentados en [`docs/facturacion-manual.md`](docs/facturacion-manual.md).
 
 ## Variables de entorno
 

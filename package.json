@@ -8,10 +8,11 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "check": "bun run typecheck && bun run lint && bun run build"
+    "check": "bun run test && bun run typecheck && bun run lint && bun run build"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
