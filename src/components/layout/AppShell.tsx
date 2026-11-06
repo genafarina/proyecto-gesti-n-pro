@@ -59,7 +59,7 @@ export function AppShell({
     )?.[1] ?? "Sistema";
 
   const SidebarInner = (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex items-center gap-2 px-4 h-14 border-b border-sidebar-border">
         <div className="h-8 w-8 rounded-md bg-sidebar-primary flex items-center justify-center">
           <Building2 className="h-4 w-4 text-sidebar-primary-foreground" />
@@ -107,8 +107,8 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-screen w-full bg-muted/30 md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside className="hidden w-60 md:flex">{SidebarInner}</aside>
+    <div className="flex min-h-screen w-full bg-muted/30">
+      <aside className="hidden w-60 shrink-0 md:flex">{SidebarInner}</aside>
 
       {/* Mobile sidebar */}
       {mobileOpen && (
@@ -129,7 +129,7 @@ export function AppShell({
         </div>
       )}
 
-      <div className="flex w-full min-w-0 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-14 w-full items-center gap-3 border-b bg-card px-4">
           <Button
             variant="ghost"
