@@ -215,30 +215,13 @@ export function validateInvoiceProjectBreakdown(
   return normalized;
 }
 
-type PdfPreviewWindow = {
-  opener: unknown;
-  location: { replace: (url: string) => void };
-  close: () => void;
-};
-
 export async function openSignedPdf(
   createSignedUrl: () => Promise<string>,
-  openWindow: () => PdfPreviewWindow | null,
+  navigate: (url: string) => void,
 ) {
-  // Open synchronously from the click event. Opening only after awaiting the
-  // signed URL is treated as a popup by browsers and was the cause of the PDF
-  // appearing not to open even though Storage returned a valid URL.
-  const preview = openWindow();
-  if (!preview) {
-    throw new Error("El navegador bloqueó la nueva pestaña. Habilitá las ventanas emergentes.");
-  }
-  preview.opener = null;
-  try {
-    preview.location.replace(await createSignedUrl());
-  } catch (error) {
-    preview.close();
-    throw error;
-  }
+  // Navigate in the current tab once Storage has authorized the signed URL.
+  // This avoids popup blockers while keeping the bucket private.
+  navigate(await createSignedUrl());
 }
 
 export function buildCurrencyFinancialSummary(

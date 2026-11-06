@@ -242,36 +242,27 @@ describe("facturación manual", () => {
     expect(summary.allocated).toBe(600);
   });
 
-  test("abre la pestaña antes de esperar la URL firmada y la cierra si falla", async () => {
+  test("navega a la URL firmada sin abrir una ventana emergente", async () => {
     const events: string[] = [];
-    const preview = {
-      opener: {} as unknown,
-      location: { replace: (url: string) => events.push(`replace:${url}`) },
-      close: () => events.push("close"),
-    };
 
     await openSignedPdf(
       async () => {
         events.push("signed");
         return "https://signed.example.test/invoice.pdf";
       },
-      () => {
-        events.push("open");
-        return preview;
-      },
+      (url) => events.push(`navigate:${url}`),
     );
 
-    expect(events).toEqual(["open", "signed", "replace:https://signed.example.test/invoice.pdf"]);
-    expect(preview.opener).toBeNull();
+    expect(events).toEqual(["signed", "navigate:https://signed.example.test/invoice.pdf"]);
 
     await expect(
       openSignedPdf(
         async () => {
           throw new Error("sin permiso");
         },
-        () => preview,
+        (url) => events.push(`navigate:${url}`),
       ),
     ).rejects.toThrow("sin permiso");
-    expect(events.at(-1)).toBe("close");
+    expect(events).toEqual(["signed", "navigate:https://signed.example.test/invoice.pdf"]);
   });
 });

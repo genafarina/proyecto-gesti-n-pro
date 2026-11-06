@@ -426,9 +426,10 @@ function InvoicesPage() {
             .from("invoice-documents")
             .createSignedUrl(invoice.pdf_path!, 60);
           if (error) throw error;
+          if (!data?.signedUrl) throw new Error("Storage no devolvió una URL firmada para el PDF.");
           return data.signedUrl;
         },
-        () => window.open("", "_blank"),
+        (signedUrl) => window.location.assign(signedUrl),
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo abrir el PDF.");
