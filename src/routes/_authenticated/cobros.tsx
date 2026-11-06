@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,13 +19,17 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatARS, formatDate, totalCollected } from "@/lib/finance";
 import { paymentMethodLabel } from "@/lib/labels";
+import { formatInvoiceNumber, type InvoiceBalance } from "@/lib/invoices";
 
 export const Route = createFileRoute("/_authenticated/cobros")({ component: CobrosPage });
 
 type Collection = {
   id?: string; project_id: string; client_id: string; collection_date: string;
   amount: number | string; payment_method: string; description: string | null; notes: string | null;
+  payment_account_id: string | null;
 };
+
+type Allocation = { id: string; collection_id: string; invoice_id: string; amount: number };
 
 function CobrosPage() {
   const qc = useQueryClient();
@@ -45,15 +50,44 @@ function CobrosPage() {
     queryKey: ["all-collections"],
     queryFn: async () => (await supabase.from("project_collections").select("*").order("collection_date", { ascending: false })).data ?? [],
   });
+  const { data: allocations = [] } = useQuery({
+    queryKey: ["invoice-allocations"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("invoice_allocations").select("*");
+      if (error) throw error;
+      return (data ?? []) as Allocation[];
+    },
+  });
+  const { data: invoices = [] } = useQuery({
+    queryKey: ["invoice-balances"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("invoice_balances").select("*");
+      if (error) throw error;
+      return (data ?? []) as unknown as InvoiceBalance[];
+    },
+  });
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["payment-accounts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("payment_accounts").select("id,name").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const projMap = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects]);
   const clientMap = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c.name])), [clients]);
+  const invoiceMap = useMemo(() => Object.fromEntries(invoices.map((invoice) => [invoice.id, invoice])), [invoices]);
+  const accountMap = useMemo(() => Object.fromEntries(accounts.map((account) => [account.id, account.name])), [accounts]);
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["all-collections"] });
     qc.invalidateQueries({ queryKey: ["collections"] });
     qc.invalidateQueries({ queryKey: ["dashboard"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
+    qc.invalidateQueries({ queryKey: ["invoice-balances"] });
+    qc.invalidateQueries({ queryKey: ["invoice-allocations"] });
+    qc.invalidateQueries({ queryKey: ["collection-allocation-summary"] });
   };
 
   const save = useMutation({
@@ -67,6 +101,7 @@ function CobrosPage() {
       const payload = {
         project_id: c.project_id, client_id: c.client_id, collection_date: c.collection_date,
         amount: amt, payment_method: c.payment_method,
+        payment_account_id: c.payment_account_id || null,
         description: c.description || null, notes: c.notes || null,
       };
       if (c.id) {
@@ -130,25 +165,43 @@ function CobrosPage() {
           <Table>
             <TableHeader><TableRow>
               <TableHead>Fecha</TableHead><TableHead>Proyecto</TableHead><TableHead>Cliente</TableHead>
-              <TableHead>Método</TableHead><TableHead>Descripción</TableHead>
+              <TableHead>Método / cuenta</TableHead><TableHead>Descripción</TableHead><TableHead>Facturas imputadas</TableHead>
               <TableHead className="text-right">Monto</TableHead><TableHead></TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {filtered.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin cobros.</TableCell></TableRow>}
-              {filtered.map((c) => (
-                <TableRow key={c.id}>
+              {filtered.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Sin cobros.</TableCell></TableRow>}
+              {filtered.map((c) => {
+                const linked = allocations.filter((allocation) => allocation.collection_id === c.id);
+                const allocated = linked.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
+                const unallocated = Math.max(Number(c.amount) - allocated, 0);
+                return <TableRow key={c.id}>
                   <TableCell>{formatDate(c.collection_date)}</TableCell>
                   <TableCell><Link to="/proyectos/$id" params={{ id: c.project_id }} className="hover:underline">{projMap[c.project_id] ? `${projMap[c.project_id].code} - ${projMap[c.project_id].name}` : "—"}</Link></TableCell>
                   <TableCell>{clientMap[c.client_id] ?? "—"}</TableCell>
-                  <TableCell>{paymentMethodLabel[c.payment_method]}</TableCell>
+                  <TableCell>
+                    <div>{paymentMethodLabel[c.payment_method]}</div>
+                    <div className="text-xs text-muted-foreground">{c.payment_account_id ? accountMap[c.payment_account_id] ?? "Cuenta eliminada" : "Sin cuenta informada"}</div>
+                  </TableCell>
                   <TableCell>{c.description ?? "—"}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {linked.map((allocation) => {
+                        const invoice = invoiceMap[allocation.invoice_id];
+                        return <Badge key={allocation.id} variant="outline" className="font-normal">
+                          {invoice ? formatInvoiceNumber(invoice.point_of_sale, invoice.invoice_number) : "Factura"}: {formatARS(Number(allocation.amount), projMap[c.project_id]?.currency ?? "ARS")}
+                        </Badge>;
+                      })}
+                      {linked.length === 0 && <Badge variant="secondary" className="font-normal">Anticipo / no imputado</Badge>}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">Disponible: {formatARS(unallocated, projMap[c.project_id]?.currency ?? "ARS")}</div>
+                  </TableCell>
                   <TableCell className="text-right">{formatARS(Number(c.amount), projMap[c.project_id]?.currency ?? "ARS")}</TableCell>
                   <TableCell className="flex justify-end gap-1">
                     <Button variant="ghost" size="icon" title="Editar" onClick={() => { setEditing(c as Collection); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" title="Eliminar" onClick={() => setToDelete(c.id)}><Trash2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" disabled={linked.length > 0} title={linked.length > 0 ? "Desvinculá las facturas antes de eliminar" : "Eliminar"} onClick={() => setToDelete(c.id)}><Trash2 className="h-4 w-4" /></Button>
                   </TableCell>
-                </TableRow>
-              ))}
+                </TableRow>;
+              })}
             </TableBody>
           </Table>
         </div>
@@ -180,6 +233,15 @@ export function CollectionForm({
   saving: boolean;
   lockProject?: boolean;
 }) {
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["payment-accounts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("payment_accounts").select("id,name,active").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   // Auto-fill client when project changes
   useEffect(() => {
     if (!editing?.project_id) return;
@@ -212,6 +274,15 @@ export function CollectionForm({
             <Select value={c.payment_method ?? "bank_transfer"} onValueChange={(v) => set("payment_method", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{Object.entries(paymentMethodLabel).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <Field label="Cuenta de cobro">
+            <Select value={c.payment_account_id ?? "none"} onValueChange={(v) => set("payment_account_id", v === "none" ? null : v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sin cuenta informada</SelectItem>
+                {accounts.filter((account) => account.active || account.id === c.payment_account_id).map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}
+              </SelectContent>
             </Select>
           </Field>
         </div>
