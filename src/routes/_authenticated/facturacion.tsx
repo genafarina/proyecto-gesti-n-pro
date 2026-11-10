@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/ui/date-input";
+import { CreditNotesSection } from "@/components/invoices/CreditNotesSection";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -56,6 +57,8 @@ import {
   optionalAmount,
   validateInvoiceProjectBreakdown,
   type CollectionAllocationSummary,
+  type CreditNote,
+  type CreditNoteProject,
   type CurrencyCode,
   type InvoiceBalance,
   type InvoiceFilters,
@@ -179,6 +182,27 @@ function InvoicesPage() {
     },
   });
 
+  const { data: creditNotes = [] } = useQuery({
+    queryKey: ["credit-notes"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("credit_notes")
+        .select("*")
+        .order("issue_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CreditNote[];
+    },
+  });
+
+  const { data: creditNoteProjects = [] } = useQuery({
+    queryKey: ["credit-note-projects"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("credit_note_projects").select("*");
+      if (error) throw error;
+      return (data ?? []) as CreditNoteProject[];
+    },
+  });
+
   const projectMap = useMemo(
     () => Object.fromEntries(projects.map((project) => [project.id, project])),
     [projects],
@@ -214,6 +238,8 @@ function InvoicesPage() {
     queryClient.invalidateQueries({ queryKey: ["collection-allocation-summary"] });
     queryClient.invalidateQueries({ queryKey: ["project-invoice-balances"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["credit-notes"] });
+    queryClient.invalidateQueries({ queryKey: ["credit-note-projects"] });
   };
 
   const save = useMutation({
@@ -538,7 +564,7 @@ function InvoicesPage() {
                   <TableHead>Cliente / proyecto</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Cobranza</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Bruto / neto</TableHead>
                   <TableHead className="text-right">Saldo</TableHead>
                   <TableHead />
                 </TableRow>
@@ -599,10 +625,20 @@ function InvoicesPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatARS(Number(invoice.total_amount), invoice.currency)}
+                        <div>{formatARS(Number(invoice.gross_amount), invoice.currency)}</div>
+                        {Number(invoice.credit_note_amount) > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            Neto {formatARS(Number(invoice.net_billed_amount), invoice.currency)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatARS(Number(invoice.balance_due), invoice.currency)}
+                        <div>{formatARS(Number(invoice.balance_due), invoice.currency)}</div>
+                        {Number(invoice.credit_balance) > 0 && (
+                          <div className="text-xs text-amber-600">
+                            A favor {formatARS(Number(invoice.credit_balance), invoice.currency)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
@@ -661,6 +697,16 @@ function InvoicesPage() {
         </CardContent>
       </Card>
 
+      <CreditNotesSection
+        invoices={invoices}
+        invoiceProjects={invoiceProjects}
+        creditNotes={creditNotes}
+        creditNoteProjects={creditNoteProjects}
+        projects={projects}
+        clients={clients}
+        onChanged={invalidate}
+      />
+
       <Dialog
         open={!!editing}
         onOpenChange={(open) => {
@@ -698,6 +744,7 @@ function InvoicesPage() {
             projectMap={projectMap}
             clientName={clientMap[currentViewing.client_id]}
             allocations={allocationsForInvoice(currentViewing.id)}
+            creditNotes={creditNotes.filter((note) => note.invoice_id === currentViewing.id)}
             collections={collectionMap}
             onOpenPdf={() => openPdf(currentViewing)}
           />
@@ -1094,6 +1141,7 @@ function InvoiceDetails({
   projectMap,
   clientName,
   allocations,
+  creditNotes,
   collections,
   onOpenPdf,
 }: {
@@ -1102,6 +1150,7 @@ function InvoiceDetails({
   projectMap: Record<string, ProjectMin>;
   clientName?: string;
   allocations: InvoiceAllocation[];
+  creditNotes: CreditNote[];
   collections: Record<string, CollectionAllocationSummary>;
   onOpenPdf: () => void;
 }) {
@@ -1139,7 +1188,18 @@ function InvoiceDetails({
               : formatARS(Number(invoice.vat_amount), invoice.currency)
           }
         />
-        <Data label="Total" value={formatARS(Number(invoice.total_amount), invoice.currency)} />
+        <Data
+          label="Facturación bruta"
+          value={formatARS(Number(invoice.gross_amount), invoice.currency)}
+        />
+        <Data
+          label="Notas de crédito activas"
+          value={formatARS(Number(invoice.credit_note_amount), invoice.currency)}
+        />
+        <Data
+          label="Facturación neta"
+          value={formatARS(Number(invoice.net_billed_amount), invoice.currency)}
+        />
         <Data
           label="Cobrado e imputado"
           value={formatARS(Number(invoice.allocated_amount), invoice.currency)}
@@ -1147,6 +1207,10 @@ function InvoiceDetails({
         <Data
           label="Saldo pendiente"
           value={formatARS(Number(invoice.balance_due), invoice.currency)}
+        />
+        <Data
+          label="Crédito a favor / a devolver"
+          value={formatARS(Number(invoice.credit_balance), invoice.currency)}
         />
         <Data
           label="Estado de cobranza"
@@ -1168,10 +1232,18 @@ function InvoiceDetails({
               <div className="font-medium">
                 {project ? `${project.code} — ${project.name}` : line.project_id}
               </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
                 <Data
-                  label="Facturado"
-                  value={formatARS(Number(line.project_amount), invoice.currency)}
+                  label="Bruto"
+                  value={formatARS(Number(line.project_gross_amount), invoice.currency)}
+                />
+                <Data
+                  label="Notas"
+                  value={formatARS(Number(line.credit_note_amount), invoice.currency)}
+                />
+                <Data
+                  label="Neto"
+                  value={formatARS(Number(line.net_billed_amount), invoice.currency)}
                 />
                 <Data
                   label="Cobrado"
@@ -1181,10 +1253,34 @@ function InvoiceDetails({
                   label="Pendiente"
                   value={formatARS(Number(line.balance_due), invoice.currency)}
                 />
+                {Number(line.credit_balance) > 0 && (
+                  <Data
+                    label="A favor"
+                    value={formatARS(Number(line.credit_balance), invoice.currency)}
+                  />
+                )}
               </div>
             </div>
           );
         })}
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium">Notas de crédito vinculadas</h3>
+        {creditNotes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay notas vinculadas.</p>
+        ) : (
+          creditNotes.map((note) => (
+            <div key={note.id} className="flex justify-between rounded-md border p-2 text-sm">
+              <span>
+                {formatDate(note.issue_date)} · NC{" "}
+                {note.document_type === "OTHER" ? "Otro" : note.document_type}{" "}
+                {formatInvoiceNumber(note.point_of_sale, note.credit_note_number)}
+                {note.status === "cancelled" ? " · Anulada" : ""}
+              </span>
+              <span className="font-medium">{formatARS(Number(note.amount), "ARS")}</span>
+            </div>
+          ))
+        )}
       </div>
       {invoice.pdf_path && (
         <Button variant="outline" onClick={onOpenPdf}>

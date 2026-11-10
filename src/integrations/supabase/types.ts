@@ -65,6 +65,126 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_note_projects: {
+        Row: {
+          amount: number
+          created_at: string
+          credit_note_id: string
+          invoice_id: string
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          credit_note_id: string
+          invoice_id: string
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          credit_note_id?: string
+          invoice_id?: string
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_note_projects_note_fkey"
+            columns: ["credit_note_id", "invoice_id"]
+            isOneToOne: false
+            referencedRelation: "credit_notes"
+            referencedColumns: ["id", "invoice_id"]
+          },
+          {
+            foreignKeyName: "credit_note_projects_invoice_project_fkey"
+            columns: ["invoice_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_projects"
+            referencedColumns: ["invoice_id", "project_id"]
+          },
+        ]
+      }
+      credit_notes: {
+        Row: {
+          amount: number
+          cancelled_at: string | null
+          cancelled_by: string | null
+          client_id: string
+          created_at: string
+          created_by: string | null
+          credit_note_number: string
+          currency: Database["public"]["Enums"]["currency_code"]
+          document_type: string
+          id: string
+          invoice_id: string
+          issue_date: string
+          pdf_path: string | null
+          point_of_sale: string
+          reason: string
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          credit_note_number: string
+          currency?: Database["public"]["Enums"]["currency_code"]
+          document_type: string
+          id?: string
+          invoice_id: string
+          issue_date: string
+          pdf_path?: string | null
+          point_of_sale: string
+          reason: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          credit_note_number?: string
+          currency?: Database["public"]["Enums"]["currency_code"]
+          document_type?: string
+          id?: string
+          invoice_id?: string
+          issue_date?: string
+          pdf_path?: string | null
+          point_of_sale?: string
+          reason?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_notes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_notes_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       general_expenses: {
         Row: {
           amount: number
@@ -769,15 +889,19 @@ export type Database = {
           balance_due: number | null
           client_id: string | null
           concept: string | null
+          credit_balance: number | null
+          credit_note_amount: number | null
           created_at: string | null
           created_by: string | null
           currency: Database["public"]["Enums"]["currency_code"] | null
           document_type: string | null
           due_date: string | null
+          gross_amount: number | null
           id: string | null
           invoice_number: string | null
           issue_date: string | null
           net_amount: number | null
+          net_billed_amount: number | null
           notes: string | null
           payment_status: string | null
           pdf_path: string | null
@@ -813,15 +937,19 @@ export type Database = {
           balance_due: number | null
           client_id: string | null
           concept: string | null
+          credit_balance: number | null
+          credit_note_amount: number | null
           currency: Database["public"]["Enums"]["currency_code"] | null
           document_type: string | null
           due_date: string | null
           invoice_id: string | null
           invoice_number: string | null
           issue_date: string | null
+          net_billed_amount: number | null
           payment_status: string | null
           point_of_sale: string | null
           project_amount: number | null
+          project_gross_amount: number | null
           project_id: string | null
           status: string | null
         }
@@ -850,6 +978,10 @@ export type Database = {
           p_invoice_id: string
           p_projects: Json
         }
+        Returns: undefined
+      }
+      cancel_credit_note: {
+        Args: { p_credit_note_id: string }
         Returns: undefined
       }
       create_project_with_code: {
@@ -908,6 +1040,10 @@ export type Database = {
       }
       save_invoice_with_projects: {
         Args: { p_invoice: Json; p_projects: Json }
+        Returns: string
+      }
+      save_credit_note_with_projects: {
+        Args: { p_credit_note: Json; p_projects: Json }
         Returns: string
       }
     }

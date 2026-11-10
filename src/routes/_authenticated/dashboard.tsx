@@ -375,8 +375,18 @@ function Dashboard() {
                 />
                 <KpiCard
                   icon={FileText}
-                  label="Total facturado"
-                  value={formatARS(summary.invoiced, summary.currency)}
+                  label="Facturación bruta"
+                  value={formatARS(summary.grossInvoiced, summary.currency)}
+                />
+                <KpiCard
+                  icon={Receipt}
+                  label="Notas de crédito"
+                  value={formatARS(summary.creditNotes, summary.currency)}
+                />
+                <KpiCard
+                  icon={FileText}
+                  label="Facturación neta"
+                  value={formatARS(summary.netInvoiced, summary.currency)}
                 />
                 <KpiCard
                   icon={Banknote}
@@ -397,10 +407,16 @@ function Dashboard() {
                   detail="Anticipos o cobros aún sin factura"
                 />
                 <KpiCard
+                  icon={WalletCards}
+                  label="Crédito a favor / a devolver"
+                  value={formatARS(summary.customerCredit, summary.currency)}
+                  tone={summary.customerCredit > 0 ? "warn" : undefined}
+                />
+                <KpiCard
                   icon={CircleDollarSign}
                   label="Contrato sin facturar"
                   value={formatARS(
-                    Math.max(summary.contracted - summary.invoiced, 0),
+                    Math.max(summary.contracted - summary.netInvoiced, 0),
                     summary.currency,
                   )}
                   detail="Diferente del saldo pendiente de facturas"

@@ -66,7 +66,11 @@ export function ProjectInvoicesSection({
     invoices.map((invoice) => ({
       project_id: invoice.project_id,
       currency: invoice.currency,
-      total_amount: invoice.project_amount,
+      total_amount: invoice.project_gross_amount,
+      gross_amount: invoice.project_gross_amount,
+      credit_note_amount: invoice.credit_note_amount,
+      net_billed_amount: invoice.net_billed_amount,
+      credit_balance: invoice.credit_balance,
       allocated_amount: invoice.allocated_amount,
       balance_due: invoice.balance_due,
       status: invoice.status,
@@ -88,7 +92,7 @@ export function ProjectInvoicesSection({
         {summaries.map((summary) => {
           const contractualPending =
             summary.currency === project.currency
-              ? Math.max(summary.contracted - summary.invoiced, 0)
+              ? Math.max(summary.contracted - summary.netInvoiced, 0)
               : 0;
           return (
             <Card key={summary.currency}>
@@ -101,8 +105,16 @@ export function ProjectInvoicesSection({
                   value={formatARS(summary.contracted, summary.currency)}
                 />
                 <Data
-                  label="Total facturado"
-                  value={formatARS(summary.invoiced, summary.currency)}
+                  label="Facturación bruta"
+                  value={formatARS(summary.grossInvoiced, summary.currency)}
+                />
+                <Data
+                  label="Notas de crédito"
+                  value={formatARS(summary.creditNotes, summary.currency)}
+                />
+                <Data
+                  label="Facturación neta"
+                  value={formatARS(summary.netInvoiced, summary.currency)}
                 />
                 <Data
                   label="Total cobrado"
@@ -119,6 +131,10 @@ export function ProjectInvoicesSection({
                 <Data
                   label="Cobros no imputados"
                   value={formatARS(summary.unallocated, summary.currency)}
+                />
+                <Data
+                  label="Crédito a favor / a devolver"
+                  value={formatARS(summary.customerCredit, summary.currency)}
                 />
                 {summary.currency === project.currency && (
                   <Data
@@ -145,7 +161,7 @@ export function ProjectInvoicesSection({
                 <TableHead>Concepto</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Cobranza</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="text-right">Bruto / neto</TableHead>
                 <TableHead className="text-right">Saldo</TableHead>
               </TableRow>
             </TableHeader>
@@ -176,10 +192,20 @@ export function ProjectInvoicesSection({
                       : invoicePaymentStatusLabel[invoice.payment_status]}
                   </TableCell>
                   <TableCell className="text-right">
-                    {formatARS(Number(invoice.project_amount), invoice.currency)}
+                    <div>{formatARS(Number(invoice.project_gross_amount), invoice.currency)}</div>
+                    {Number(invoice.credit_note_amount) > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        Neto {formatARS(Number(invoice.net_billed_amount), invoice.currency)}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {formatARS(Number(invoice.balance_due), invoice.currency)}
+                    <div>{formatARS(Number(invoice.balance_due), invoice.currency)}</div>
+                    {Number(invoice.credit_balance) > 0 && (
+                      <div className="text-xs text-amber-600">
+                        A favor {formatARS(Number(invoice.credit_balance), invoice.currency)}
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

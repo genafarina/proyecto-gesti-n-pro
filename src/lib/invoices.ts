@@ -1,6 +1,7 @@
 export type CurrencyCode = "ARS" | "USD";
 export type InvoiceStatus = "issued" | "cancelled";
-export type InvoicePaymentStatus = "pending" | "partial" | "paid";
+export type InvoicePaymentStatus = "pending" | "partial" | "paid" | "credited";
+export type CreditNoteStatus = "active" | "cancelled";
 
 export type InvoiceBalance = {
   id: string;
@@ -21,6 +22,10 @@ export type InvoiceBalance = {
   status: InvoiceStatus;
   allocated_amount: number | string;
   balance_due: number | string;
+  gross_amount: number | string;
+  credit_note_amount: number | string;
+  net_billed_amount: number | string;
+  credit_balance: number | string;
   payment_status: InvoicePaymentStatus;
   project_ids: string[];
   project_count: number;
@@ -49,7 +54,44 @@ export type InvoiceProjectBalance = {
   project_amount: number | string;
   allocated_amount: number | string;
   balance_due: number | string;
+  project_gross_amount: number | string;
+  credit_note_amount: number | string;
+  net_billed_amount: number | string;
+  credit_balance: number | string;
   payment_status: InvoicePaymentStatus;
+};
+
+export type CreditNote = {
+  id: string;
+  invoice_id: string;
+  client_id: string;
+  document_type: string;
+  point_of_sale: string;
+  credit_note_number: string;
+  issue_date: string;
+  amount: number | string;
+  currency: "ARS";
+  reason: string;
+  pdf_path: string | null;
+  status: CreditNoteStatus;
+  cancelled_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CreditNoteProject = {
+  credit_note_id: string;
+  invoice_id: string;
+  project_id: string;
+  amount: number | string;
+};
+
+export type CreditNoteFilters = {
+  clientId: string;
+  projectId: string;
+  from: string;
+  to: string;
+  invoice: string;
 };
 
 export type CollectionAllocationSummary = {
@@ -78,9 +120,13 @@ export type CurrencyFinancialSummary = {
   currency: CurrencyCode;
   contracted: number;
   invoiced: number;
+  grossInvoiced: number;
+  creditNotes: number;
+  netInvoiced: number;
   collected: number;
   allocated: number;
   invoiceBalance: number;
+  customerCredit: number;
   unallocated: number;
 };
 
@@ -108,6 +154,12 @@ export const invoicePaymentStatusLabel: Record<InvoicePaymentStatus, string> = {
   pending: "Pendiente",
   partial: "Parcialmente cobrada",
   paid: "Pagada",
+  credited: "Acreditada totalmente",
+};
+
+export const creditNoteStatusLabel: Record<CreditNoteStatus, string> = {
+  active: "Activa",
+  cancelled: "Anulada",
 };
 
 export function formatInvoiceNumber(pointOfSale: string, invoiceNumber: string) {
@@ -155,6 +207,42 @@ export function filterInvoices(invoices: InvoiceBalance[], filters: InvoiceFilte
         .toLowerCase()
         .includes(number) &&
       !invoice.invoice_number.toLowerCase().includes(number)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function filterCreditNotes(
+  creditNotes: CreditNote[],
+  projects: CreditNoteProject[],
+  invoices: InvoiceBalance[],
+  filters: CreditNoteFilters,
+) {
+  const invoiceNumber = filters.invoice.trim().toLowerCase();
+  const invoiceMap = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+  const projectsByNote = new Map<string, Set<string>>();
+  projects.forEach((line) => {
+    const ids = projectsByNote.get(line.credit_note_id) ?? new Set<string>();
+    ids.add(line.project_id);
+    projectsByNote.set(line.credit_note_id, ids);
+  });
+
+  return creditNotes.filter((note) => {
+    const invoice = invoiceMap.get(note.invoice_id);
+    if (filters.clientId !== "all" && note.client_id !== filters.clientId) return false;
+    if (filters.projectId !== "all" && !projectsByNote.get(note.id)?.has(filters.projectId)) {
+      return false;
+    }
+    if (filters.from && note.issue_date < filters.from) return false;
+    if (filters.to && note.issue_date > filters.to) return false;
+    if (
+      invoiceNumber &&
+      (!invoice ||
+        !formatInvoiceNumber(invoice.point_of_sale, invoice.invoice_number)
+          .toLowerCase()
+          .includes(invoiceNumber))
     ) {
       return false;
     }
@@ -215,6 +303,23 @@ export function validateInvoiceProjectBreakdown(
   return normalized;
 }
 
+export function validateCreditNoteProjectBreakdown(
+  projects: { project_id: string; amount: number | string }[],
+  totalAmount: number,
+  availableByProject: Record<string, number>,
+) {
+  const normalized = validateInvoiceProjectBreakdown(projects, totalAmount);
+  normalized.forEach((project) => {
+    if (!(project.project_id in availableByProject)) {
+      throw new Error("Cada proyecto de la nota debe integrar la factura seleccionada.");
+    }
+    if (project.amount > availableByProject[project.project_id]) {
+      throw new Error("El importe acreditado supera el disponible del proyecto en la factura.");
+    }
+  });
+  return normalized;
+}
+
 export async function openSignedPdf(
   createSignedUrl: () => Promise<string>,
   navigate: (url: string) => void,
@@ -228,7 +333,15 @@ export function buildCurrencyFinancialSummary(
   projects: { id: string; currency: CurrencyCode; contracted_amount: number | string }[],
   invoices: Pick<
     InvoiceBalance,
-    "project_id" | "currency" | "total_amount" | "allocated_amount" | "balance_due" | "status"
+    | "project_id"
+    | "currency"
+    | "total_amount"
+    | "credit_note_amount"
+    | "net_billed_amount"
+    | "allocated_amount"
+    | "balance_due"
+    | "credit_balance"
+    | "status"
   >[],
   collections: Pick<
     CollectionAllocationSummary,
@@ -245,9 +358,18 @@ export function buildCurrencyFinancialSummary(
     contracted: projects
       .filter((project) => project.currency === currency)
       .reduce((sum, project) => sum + numberValue(project.contracted_amount), 0),
-    invoiced: invoices
+    grossInvoiced: invoices
       .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
       .reduce((sum, invoice) => sum + numberValue(invoice.total_amount), 0),
+    creditNotes: invoices
+      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+      .reduce((sum, invoice) => sum + numberValue(invoice.credit_note_amount), 0),
+    netInvoiced: invoices
+      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+      .reduce((sum, invoice) => sum + numberValue(invoice.net_billed_amount), 0),
+    invoiced: invoices
+      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+      .reduce((sum, invoice) => sum + numberValue(invoice.net_billed_amount), 0),
     collected: collections
       .filter((collection) => collection.currency === currency)
       .reduce((sum, collection) => sum + numberValue(collection.amount), 0),
@@ -257,6 +379,9 @@ export function buildCurrencyFinancialSummary(
     invoiceBalance: invoices
       .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
       .reduce((sum, invoice) => sum + numberValue(invoice.balance_due), 0),
+    customerCredit: invoices
+      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+      .reduce((sum, invoice) => sum + numberValue(invoice.credit_balance), 0),
     unallocated: collections
       .filter((collection) => collection.currency === currency)
       .reduce((sum, collection) => sum + numberValue(collection.unallocated_amount), 0),
@@ -268,7 +393,15 @@ export function projectCurrencyFinancialSummary(
   projects: { id: string; currency: CurrencyCode; contracted_amount: number | string }[],
   invoices: Pick<
     InvoiceBalance,
-    "project_id" | "currency" | "total_amount" | "allocated_amount" | "balance_due" | "status"
+    | "project_id"
+    | "currency"
+    | "total_amount"
+    | "credit_note_amount"
+    | "net_billed_amount"
+    | "allocated_amount"
+    | "balance_due"
+    | "credit_balance"
+    | "status"
   >[],
   collections: Pick<
     CollectionAllocationSummary,
