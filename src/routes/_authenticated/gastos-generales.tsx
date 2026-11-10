@@ -31,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -65,6 +66,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatARS, formatDate } from "@/lib/finance";
+import { todayIsoDate } from "@/lib/dates";
 import {
   defaultGeneralExpenseType,
   generalExpenseCategoryLabel,
@@ -278,7 +280,7 @@ function GeneralExpensesPage() {
   const startCreate = () => {
     const firstActiveAccount = accounts.find((account) => account.active);
     setEditing({
-      expense_date: new Date().toISOString().slice(0, 10),
+      expense_date: todayIsoDate(),
       category: "other",
       expense_type: "operational",
       status: "paid",
@@ -304,7 +306,7 @@ function GeneralExpensesPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `gastos-generales-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `gastos-generales-${todayIsoDate()}.csv`;
     link.style.display = "none";
     document.body.appendChild(link);
     link.click();
@@ -416,17 +418,15 @@ function GeneralExpensesPage() {
           {filters.period === "custom" && (
             <>
               <Filter label="Desde">
-                <Input
-                  type="date"
-                  value={filters.customFrom ?? ""}
-                  onChange={(event) => updateFilter("customFrom", event.target.value)}
+                <DateInput
+                  value={filters.customFrom}
+                  onChange={(value) => updateFilter("customFrom", value)}
                 />
               </Filter>
               <Filter label="Hasta">
-                <Input
-                  type="date"
-                  value={filters.customTo ?? ""}
-                  onChange={(event) => updateFilter("customTo", event.target.value)}
+                <DateInput
+                  value={filters.customTo}
+                  onChange={(value) => updateFilter("customTo", value)}
                 />
               </Filter>
             </>
@@ -759,11 +759,10 @@ function GeneralExpenseForm({
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Fecha *">
-            <Input
-              type="date"
+            <DateInput
               required
-              value={expense.expense_date ?? ""}
-              onChange={(event) => set("expense_date", event.target.value)}
+              value={expense.expense_date}
+              onChange={(value) => set("expense_date", value)}
             />
           </Field>
           <Field label="Monto *">

@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -232,21 +233,11 @@ function Dashboard() {
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="dashboard-from">Fecha desde</Label>
-                <Input
-                  id="dashboard-from"
-                  type="date"
-                  value={customFrom}
-                  onChange={(event) => setCustomFrom(event.target.value)}
-                />
+                <DateInput id="dashboard-from" value={customFrom} onChange={setCustomFrom} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dashboard-to">Fecha hasta</Label>
-                <Input
-                  id="dashboard-to"
-                  type="date"
-                  value={customTo}
-                  onChange={(event) => setCustomTo(event.target.value)}
-                />
+                <DateInput id="dashboard-to" value={customTo} onChange={setCustomTo} />
               </div>
             </>
           )}

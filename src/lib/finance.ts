@@ -1,6 +1,10 @@
 // Cálculos financieros y de avance centralizados.
 // Única fuente de verdad para todas las pantallas.
 
+import { todayIsoDate } from "@/lib/dates";
+
+export { formatDate } from "@/lib/dates";
+
 export type ProjectRow = {
   id: string;
   contracted_amount: number | string;
@@ -51,22 +55,16 @@ export const estimatedMarginPct = (contracted: number | string, estCost: number 
   return ((c - n(estCost)) / c) * 100;
 };
 
-const today = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
 export const isOverdueProject = (p: ProjectRow) => {
   if (!p.planned_end_date) return false;
   if (p.status === "completed" || p.status === "cancelled") return false;
-  return new Date(p.planned_end_date) < today();
+  return p.planned_end_date < todayIsoDate();
 };
 
 export const isOverdueTask = (t: TaskRow) => {
   if (!t.planned_end_date) return false;
   if (t.status === "completed" || t.status === "cancelled") return false;
-  return new Date(t.planned_end_date) < today();
+  return t.planned_end_date < todayIsoDate();
 };
 
 export const formatARS = (v: number, currency: string = "ARS") =>
@@ -76,8 +74,3 @@ export const formatARS = (v: number, currency: string = "ARS") =>
 
 export const formatPct = (v: number) =>
   `${(Number.isFinite(v) ? v : 0).toFixed(1).replace(".0", "")}%`;
-
-export const formatDate = (d: string | null | undefined) => {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("es-AR");
-};

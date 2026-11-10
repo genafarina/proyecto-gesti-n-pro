@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -317,10 +318,10 @@ function ProjectForm({
               <SelectContent>{Object.entries(projectStatusLabel).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
-          <Field label="Fecha inicio prevista"><Input type="date" value={p.planned_start_date ?? ""} onChange={(e) => set("planned_start_date", e.target.value)} /></Field>
-          <Field label="Fecha fin prevista"><Input type="date" value={p.planned_end_date ?? ""} onChange={(e) => set("planned_end_date", e.target.value)} /></Field>
-          <Field label="Fecha inicio real"><Input type="date" value={p.actual_start_date ?? ""} onChange={(e) => set("actual_start_date", e.target.value)} /></Field>
-          <Field label="Fecha fin real"><Input type="date" value={p.actual_end_date ?? ""} onChange={(e) => set("actual_end_date", e.target.value)} /></Field>
+          <Field label="Fecha inicio prevista"><DateInput value={p.planned_start_date} onChange={(value) => set("planned_start_date", value)} /></Field>
+          <Field label="Fecha fin prevista"><DateInput value={p.planned_end_date} onChange={(value) => set("planned_end_date", value)} /></Field>
+          <Field label="Fecha inicio real"><DateInput value={p.actual_start_date} onChange={(value) => set("actual_start_date", value)} /></Field>
+          <Field label="Fecha fin real"><DateInput value={p.actual_end_date} onChange={(value) => set("actual_end_date", value)} /></Field>
           <Field label="Moneda">
             <Select value={p.currency ?? "ARS"} onValueChange={(v) => set("currency", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
