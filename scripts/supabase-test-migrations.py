@@ -19,7 +19,7 @@ def validate_uri(raw):
     try:
         uri = urlsplit(raw)
         user = unquote(uri.username or "")
-        pairs = parse_qsl(uri.query, strict_parsing=True)
+        pairs = parse_qsl(uri.query, strict_parsing=True, keep_blank_values=True)
         valid_query = pairs in ([], [("sslmode", "require")], [("sslmode", "verify-full")])
         direct = uri.hostname == f"db.{TEST_REF}.supabase.co" and user == "postgres"
         pooler = bool(re.fullmatch(r"aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com", uri.hostname or "")) and user == f"postgres.{TEST_REF}"

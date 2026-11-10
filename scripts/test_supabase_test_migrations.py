@@ -34,6 +34,7 @@ class DestinationGuardTests(unittest.TestCase):
             base.replace("ovtahbpcpifsrlrpapkx", "anotherproject"),
             base.replace(".supabase.co", ".supabase.co.attacker.test"),
             base + "?sslmode=disable", base + "?host=other.example", base + "#fragment",
+            base + "?host=", base + "?sslmode=", base + "?sslmode=require&host=",
             base.replace(":5432", ":6543"), base.replace("postgres:dummy", "postgres"),
             base + "?sslmode=require&sslmode=disable",
             base.replace("dummy", "psftlbjupejzgnvqqcpp"),
