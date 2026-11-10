@@ -1,3 +1,4 @@
+import { useCreditNoteSchema } from "@/components/invoices/use-credit-note-schema";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatARS, formatDate } from "@/lib/finance";
 import {
   formatInvoiceNumber,
+  normalizeInvoiceProjectBalance,
   invoiceDocumentTypeLabel,
   invoicePaymentStatusLabel,
   invoiceStatusLabel,
@@ -34,6 +36,7 @@ export function ProjectInvoicesSection({
     contracted_amount: number | string;
   };
 }) {
+  const creditSchema = useCreditNoteSchema();
   const { data: invoices = [], isLoading: loadingInvoices } = useQuery({
     queryKey: ["project-invoice-balances", project.id],
     queryFn: async () => {
@@ -43,7 +46,9 @@ export function ProjectInvoicesSection({
         .eq("project_id", project.id)
         .order("issue_date", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as InvoiceProjectBalance[];
+      return ((data ?? []) as unknown as InvoiceProjectBalance[]).map(
+        normalizeInvoiceProjectBalance,
+      );
     },
   });
 
@@ -105,17 +110,21 @@ export function ProjectInvoicesSection({
                   value={formatARS(summary.contracted, summary.currency)}
                 />
                 <Data
-                  label="Facturación bruta"
+                  label={creditSchema.data === true ? "Facturación bruta" : "Total facturado"}
                   value={formatARS(summary.grossInvoiced, summary.currency)}
                 />
-                <Data
-                  label="Notas de crédito"
-                  value={formatARS(summary.creditNotes, summary.currency)}
-                />
-                <Data
-                  label="Facturación neta"
-                  value={formatARS(summary.netInvoiced, summary.currency)}
-                />
+                {creditSchema.data === true && (
+                  <Data
+                    label="Notas de crédito"
+                    value={formatARS(summary.creditNotes, summary.currency)}
+                  />
+                )}
+                {creditSchema.data === true && (
+                  <Data
+                    label="Facturación neta"
+                    value={formatARS(summary.netInvoiced, summary.currency)}
+                  />
+                )}
                 <Data
                   label="Total cobrado"
                   value={formatARS(summary.collected, summary.currency)}
@@ -132,10 +141,12 @@ export function ProjectInvoicesSection({
                   label="Cobros no imputados"
                   value={formatARS(summary.unallocated, summary.currency)}
                 />
-                <Data
-                  label="Crédito a favor / a devolver"
-                  value={formatARS(summary.customerCredit, summary.currency)}
-                />
+                {creditSchema.data === true && (
+                  <Data
+                    label="Crédito a favor / a devolver"
+                    value={formatARS(summary.customerCredit, summary.currency)}
+                  />
+                )}
                 {summary.currency === project.currency && (
                   <Data
                     label="Saldo contractual sin facturar"

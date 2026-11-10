@@ -47,6 +47,9 @@ import { todayIsoDate } from "@/lib/dates";
 import { formatARS, formatDate } from "@/lib/finance";
 import {
   creditNoteStatusLabel,
+  moneyCents,
+  positiveCreditProjects,
+  setCreditProjectAmount,
   filterCreditNotes,
   formatInvoiceNumber,
   invoiceDocumentTypeLabel,
@@ -175,12 +178,12 @@ export function CreditNotesSection({
       }
       if (!draft.reason?.trim()) throw new Error("El motivo es obligatorio.");
 
-      const amount = Math.round(Number(draft.amount) * 100) / 100;
+      const amount = moneyCents(draft.amount) / 100;
       const available = availableForInvoice(invoice, creditNotes, draft.id);
       if (!Number.isFinite(amount) || amount <= 0) {
         throw new Error("El importe debe ser mayor a cero.");
       }
-      if (amount > available) {
+      if (moneyCents(amount) > moneyCents(available)) {
         throw new Error("La nota supera el importe disponible de la factura.");
       }
 
@@ -192,7 +195,7 @@ export function CreditNotesSection({
         draft.id,
       );
       const projectAllocations = validateCreditNoteProjectBreakdown(
-        draft.project_allocations,
+        positiveCreditProjects(draft.project_allocations),
         amount,
         availableByProject,
       );
@@ -218,16 +221,9 @@ export function CreditNotesSection({
         p_credit_note: payload,
         p_projects: projectAllocations,
       });
-      if (result.error) {
-        if (uploadedPath) await supabase.storage.from("invoice-documents").remove([uploadedPath]);
-        throw result.error;
-      }
-
-      if (previousPath && previousPath !== payload.pdf_path) {
-        const result = await supabase.storage.from("invoice-documents").remove([previousPath]);
-        if (result.error)
-          toast.warning("La nota se guardó, pero no se pudo quitar el PDF anterior.");
-      }
+      // Keep objects: a lost response may follow a committed transaction, and
+      // a previous path may still belong to another invoice or note.
+      if (result.error) throw result.error;
     },
     onSuccess: (_data, variables) => {
       toast.success(
@@ -575,10 +571,10 @@ function CreditNoteForm({
     ? projectAvailability(invoice.id, lines, creditNotes, creditNoteProjects, draft.id)
     : {};
   const distributed = draft.project_allocations.reduce(
-    (sum, line) => sum + Number(line.amount || 0),
+    (sum, line) => sum + moneyCents(line.amount),
     0,
   );
-  const amount = Number(draft.amount || 0);
+  const amount = moneyCents(draft.amount);
   const set = <K extends keyof CreditNoteDraft>(key: K, value: CreditNoteDraft[K]) =>
     setDraft({ ...draft, [key]: value });
   const selectInvoice = (invoiceId: string) => {
@@ -602,6 +598,7 @@ function CreditNoteForm({
     });
   };
   const setAmount = (value: string) => {
+    if (!/^\d{0,12}(\.\d{0,2})?$/.test(value)) return;
     const allocations =
       lines.length === 1
         ? [{ project_id: lines[0].project_id, amount: value }]
@@ -764,10 +761,10 @@ function CreditNoteForm({
                     onChange={(event) =>
                       set(
                         "project_allocations",
-                        draft.project_allocations.map((item) =>
-                          item.project_id === line.project_id
-                            ? { ...item, amount: event.target.value }
-                            : item,
+                        setCreditProjectAmount(
+                          draft.project_allocations,
+                          line.project_id,
+                          event.target.value,
                         ),
                       )
                     }
@@ -780,10 +777,10 @@ function CreditNoteForm({
                 distributed === amount ? "text-sm text-emerald-600" : "text-sm text-destructive"
               }
             >
-              Distribuido {formatARS(distributed, "ARS")} ·{" "}
+              Distribuido {formatARS(distributed / 100, "ARS")} ·{" "}
               {distributed === amount
                 ? "Coincide con el total"
-                : `Diferencia ${formatARS(amount - distributed, "ARS")}`}
+                : `Diferencia ${formatARS((amount - distributed) / 100, "ARS")}`}
             </div>
           </div>
         )}
@@ -896,8 +893,8 @@ function availableForInvoice(invoice: InvoiceBalance, notes: CreditNote[], editi
     .filter(
       (note) => note.invoice_id === invoice.id && note.status === "active" && note.id !== editingId,
     )
-    .reduce((sum, note) => sum + Number(note.amount), 0);
-  return Math.max(Number(invoice.total_amount) - credited, 0);
+    .reduce((sum, note) => sum + moneyCents(note.amount), 0);
+  return Math.max(moneyCents(invoice.total_amount) - credited, 0) / 100;
 }
 
 function projectAvailability(
@@ -919,7 +916,7 @@ function projectAvailability(
     invoiceLines.map((line) => [
       line.project_id,
       Math.max(
-        Number(line.project_amount) -
+        moneyCents(line.project_amount) -
           noteLines
             .filter(
               (item) =>
@@ -927,9 +924,9 @@ function projectAvailability(
                 item.project_id === line.project_id &&
                 activeIds.has(item.credit_note_id),
             )
-            .reduce((sum, item) => sum + Number(item.amount), 0),
+            .reduce((sum, item) => sum + moneyCents(item.amount), 0),
         0,
-      ),
+      ) / 100,
     ]),
   );
 }

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/ui/date-input";
+import { useCreditNoteSchema } from "@/components/invoices/use-credit-note-schema";
 import { CreditNotesSection } from "@/components/invoices/CreditNotesSection";
 import { Label } from "@/components/ui/label";
 import {
@@ -47,6 +48,8 @@ import { formatARS, formatDate } from "@/lib/finance";
 import { todayIsoDate } from "@/lib/dates";
 import {
   calculateInvoiceTotal,
+  normalizeInvoiceBalance,
+  normalizeInvoiceProjectBalance,
   filterInvoices,
   formatInvoiceNumber,
   invoiceDocumentTypeLabel,
@@ -110,6 +113,7 @@ const today = todayIsoDate;
 
 function InvoicesPage() {
   const queryClient = useQueryClient();
+  const schema = useCreditNoteSchema();
   const [filters, setFilters] = useState(initialFilters);
   const [editing, setEditing] = useState<InvoiceDraft | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -127,7 +131,7 @@ function InvoicesPage() {
         .select("*")
         .order("issue_date", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as InvoiceBalance[];
+      return ((data ?? []) as unknown as InvoiceBalance[]).map(normalizeInvoiceBalance);
     },
   });
 
@@ -178,12 +182,19 @@ function InvoicesPage() {
     queryFn: async () => {
       const { data, error } = await supabase.from("invoice_project_balances").select("*");
       if (error) throw error;
-      return (data ?? []) as unknown as InvoiceProjectBalance[];
+      return ((data ?? []) as unknown as InvoiceProjectBalance[]).map(
+        normalizeInvoiceProjectBalance,
+      );
     },
   });
 
-  const { data: creditNotes = [] } = useQuery({
+  const {
+    data: creditNotes = [],
+    error: notesError,
+    isPending: notesPending,
+  } = useQuery({
     queryKey: ["credit-notes"],
+    enabled: schema.data === true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("credit_notes")
@@ -194,8 +205,13 @@ function InvoicesPage() {
     },
   });
 
-  const { data: creditNoteProjects = [] } = useQuery({
+  const {
+    data: creditNoteProjects = [],
+    error: noteProjectsError,
+    isPending: noteProjectsPending,
+  } = useQuery({
     queryKey: ["credit-note-projects"],
+    enabled: schema.data === true,
     queryFn: async () => {
       const { data, error } = await supabase.from("credit_note_projects").select("*");
       if (error) throw error;
@@ -316,15 +332,8 @@ function InvoicesPage() {
         p_projects: projectAllocations,
       });
 
-      if (result.error) {
-        if (uploadedPath) await supabase.storage.from("invoice-documents").remove([uploadedPath]);
-        throw result.error;
-      }
-
-      if (previousPath && previousPath !== payload.pdf_path) {
-        const { error } = await supabase.storage.from("invoice-documents").remove([previousPath]);
-        if (error) toast.warning("La factura se guardó, pero no se pudo quitar el PDF anterior.");
-      }
+      // Retain PDFs: paths may be shared and a network error can follow commit.
+      if (result.error) throw result.error;
     },
     onSuccess: (_data, variables) => {
       toast.success(variables.draft.id ? "Factura actualizada." : "Factura registrada.");
@@ -357,10 +366,7 @@ function InvoicesPage() {
     mutationFn: async (invoice: InvoiceBalance) => {
       const { error } = await supabase.from("invoices").delete().eq("id", invoice.id);
       if (error) throw error;
-      if (invoice.pdf_path) {
-        const result = await supabase.storage.from("invoice-documents").remove([invoice.pdf_path]);
-        if (result.error) toast.warning("El registro se eliminó, pero quedó un PDF huérfano.");
-      }
+      // Retain the private PDF; another document may reference this object.
     },
     onSuccess: () => {
       toast.success("Registro de factura eliminado.");
@@ -697,15 +703,31 @@ function InvoicesPage() {
         </CardContent>
       </Card>
 
-      <CreditNotesSection
-        invoices={invoices}
-        invoiceProjects={invoiceProjects}
-        creditNotes={creditNotes}
-        creditNoteProjects={creditNoteProjects}
-        projects={projects}
-        clients={clients}
-        onChanged={invalidate}
-      />
+      {schema.data === true &&
+      !notesError &&
+      !noteProjectsError &&
+      !notesPending &&
+      !noteProjectsPending ? (
+        <CreditNotesSection
+          invoices={invoices}
+          invoiceProjects={invoiceProjects}
+          creditNotes={creditNotes}
+          creditNoteProjects={creditNoteProjects}
+          projects={projects}
+          clients={clients}
+          onChanged={invalidate}
+        />
+      ) : (
+        <Card>
+          <CardContent className="pt-6 text-sm" role="status">
+            {schema.error || notesError || noteProjectsError
+              ? "No se pudieron cargar las notas de crédito. Revisá la conexión y los permisos."
+              : schema.isPending
+                ? "Comprobando disponibilidad de notas de crédito..."
+                : "Notas de crédito no disponibles: falta aplicar la migración. La facturación actual sigue disponible."}
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog
         open={!!editing}

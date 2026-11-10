@@ -107,6 +107,39 @@ export type Database = {
           },
         ]
       }
+      credit_note_revisions: {
+        Row: {
+          id: string
+          credit_note_id: string
+          previous_header: Json
+          previous_projects: Json
+          recorded_by: string | null
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          credit_note_id: string
+          previous_header: Json
+          previous_projects: Json
+          recorded_by?: string | null
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          credit_note_id?: string
+          previous_header?: Json
+          previous_projects?: Json
+          recorded_by?: string | null
+          recorded_at?: string
+        }
+        Relationships: [{
+          foreignKeyName: "credit_note_revisions_credit_note_id_fkey"
+          columns: ["credit_note_id"]
+          isOneToOne: false
+          referencedRelation: "credit_notes"
+          referencedColumns: ["id"]
+        }]
+      }
       credit_notes: {
         Row: {
           amount: number

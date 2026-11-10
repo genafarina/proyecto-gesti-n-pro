@@ -97,6 +97,38 @@ CREATE INDEX credit_note_projects_invoice_id_idx
 CREATE INDEX credit_note_projects_project_id_idx
   ON public.credit_note_projects(project_id);
 
+-- Preserve the previous header and distribution when an admin edits or cancels.
+CREATE TABLE public.credit_note_revisions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  credit_note_id uuid NOT NULL REFERENCES public.credit_notes(id) ON DELETE RESTRICT,
+  previous_header jsonb NOT NULL,
+  previous_projects jsonb NOT NULL,
+  recorded_by uuid DEFAULT auth.uid(),
+  recorded_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.credit_note_revisions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.credit_note_revisions FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.credit_note_revisions TO authenticated, service_role;
+CREATE POLICY "credit_note_revisions select auth"
+  ON public.credit_note_revisions FOR SELECT TO authenticated USING (true);
+
+CREATE FUNCTION public.record_credit_note_revision()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+BEGIN
+  INSERT INTO public.credit_note_revisions (credit_note_id, previous_header, previous_projects)
+  SELECT OLD.id, to_jsonb(OLD),
+    coalesce(jsonb_agg(to_jsonb(line) ORDER BY line.project_id)
+      FILTER (WHERE line.credit_note_id IS NOT NULL), '[]'::jsonb)
+    FROM public.credit_note_projects line WHERE line.credit_note_id = OLD.id;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.record_credit_note_revision() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER trg_credit_notes_revision
+  AFTER UPDATE ON public.credit_notes
+  FOR EACH ROW EXECUTE FUNCTION public.record_credit_note_revision();
+
 CREATE OR REPLACE FUNCTION public.validate_credit_note()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -565,13 +597,171 @@ CREATE TRIGGER trg_invoice_allocations_validate_net
   BEFORE INSERT OR UPDATE ON public.invoice_allocations
   FOR EACH ROW EXECUTE FUNCTION public.validate_net_invoice_allocation();
 
+CREATE OR REPLACE FUNCTION public.save_invoice_with_projects(
+  p_invoice jsonb,
+  p_projects jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  target_invoice_id uuid := coalesce((p_invoice ->> 'id')::uuid, gen_random_uuid());
+  target_client_id uuid := (p_invoice ->> 'client_id')::uuid;
+  target_currency public.currency_code := (p_invoice ->> 'currency')::public.currency_code;
+  target_total numeric(14,2) := (p_invoice ->> 'total_amount')::numeric(14,2);
+  primary_project_id uuid;
+  project_count integer;
+  distinct_project_count integer;
+  project_total numeric(14,2);
+BEGIN
+  IF jsonb_typeof(p_projects) <> 'array' OR jsonb_array_length(p_projects) = 0 THEN
+    RAISE EXCEPTION 'La factura debe estar asociada al menos a un proyecto'
+      USING ERRCODE = '23514';
+  END IF;
+
+  SELECT count(*), count(DISTINCT item.project_id), sum(item.amount)
+    INTO project_count, distinct_project_count, project_total
+    FROM jsonb_to_recordset(p_projects) AS item(project_id uuid, amount numeric(14,2));
+
+  IF project_count <> distinct_project_count THEN
+    RAISE EXCEPTION 'No se puede repetir un proyecto en el desglose de la factura'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_to_recordset(p_projects) AS item(project_id uuid, amount numeric(14,2))
+     WHERE item.project_id IS NULL OR item.amount IS NULL OR item.amount <= 0
+  ) THEN
+    RAISE EXCEPTION 'Cada proyecto debe tener un importe mayor a cero'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF project_total <> target_total THEN
+    RAISE EXCEPTION 'La suma del desglose por proyecto debe coincidir exactamente con el total de la factura'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_to_recordset(p_projects) AS item(project_id uuid, amount numeric(14,2))
+      LEFT JOIN public.projects project ON project.id = item.project_id
+     WHERE project.id IS NULL
+        OR project.client_id <> target_client_id
+        OR project.currency <> target_currency
+  ) THEN
+    RAISE EXCEPTION 'Todos los proyectos de la factura deben pertenecer al mismo cliente y moneda'
+      USING ERRCODE = '23514';
+  END IF;
+
+  -- Lock all participating projects in a deterministic order and share the
+  -- same advisory locks used by project edits.
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('invoiced-project:' || item.project_id::text, 0)
+  )
+    FROM (
+      SELECT project_id
+        FROM jsonb_to_recordset(p_projects) AS requested(project_id uuid, amount numeric(14,2))
+       ORDER BY project_id
+    ) item;
+
+  SELECT (entry.value ->> 'project_id')::uuid
+    INTO primary_project_id
+    FROM jsonb_array_elements(p_projects) WITH ORDINALITY AS entry(value, position)
+   ORDER BY entry.position
+   LIMIT 1;
+
+  PERFORM 1 FROM public.invoices WHERE id = target_invoice_id FOR UPDATE;
+
+  IF EXISTS (SELECT 1 FROM public.invoices WHERE id = target_invoice_id) THEN
+    IF EXISTS (
+      SELECT 1
+        FROM (
+          SELECT allocation.project_id, sum(allocation.amount) AS allocated_amount
+            FROM public.invoice_allocations allocation
+           WHERE allocation.invoice_id = target_invoice_id
+           GROUP BY allocation.project_id
+        ) allocated
+        LEFT JOIN jsonb_to_recordset(p_projects)
+          AS requested(project_id uuid, amount numeric(14,2))
+          ON requested.project_id = allocated.project_id
+       WHERE requested.project_id IS NULL
+          OR requested.amount < allocated.allocated_amount
+    ) THEN
+      RAISE EXCEPTION 'El nuevo desglose es incompatible con los cobros ya imputados'
+        USING ERRCODE = '23514';
+    END IF;
+
+    UPDATE public.invoices
+       SET client_id = target_client_id,
+           project_id = primary_project_id,
+           document_type = p_invoice ->> 'document_type',
+           point_of_sale = p_invoice ->> 'point_of_sale',
+           invoice_number = p_invoice ->> 'invoice_number',
+           issue_date = (p_invoice ->> 'issue_date')::date,
+           due_date = (p_invoice ->> 'due_date')::date,
+           concept = p_invoice ->> 'concept',
+           net_amount = (p_invoice ->> 'net_amount')::numeric(14,2),
+           vat_amount = (p_invoice ->> 'vat_amount')::numeric(14,2),
+           total_amount = target_total,
+           currency = target_currency,
+           pdf_path = p_invoice ->> 'pdf_path',
+           notes = p_invoice ->> 'notes',
+           status = coalesce(p_invoice ->> 'status', 'issued')
+     WHERE id = target_invoice_id;
+  ELSE
+    INSERT INTO public.invoices (
+      id, client_id, project_id, document_type, point_of_sale, invoice_number,
+      issue_date, due_date, concept, net_amount, vat_amount, total_amount,
+      currency, pdf_path, notes, status
+    ) VALUES (
+      target_invoice_id,
+      target_client_id,
+      primary_project_id,
+      p_invoice ->> 'document_type',
+      p_invoice ->> 'point_of_sale',
+      p_invoice ->> 'invoice_number',
+      (p_invoice ->> 'issue_date')::date,
+      (p_invoice ->> 'due_date')::date,
+      p_invoice ->> 'concept',
+      (p_invoice ->> 'net_amount')::numeric(14,2),
+      (p_invoice ->> 'vat_amount')::numeric(14,2),
+      target_total,
+      target_currency,
+      p_invoice ->> 'pdf_path',
+      p_invoice ->> 'notes',
+      coalesce(p_invoice ->> 'status', 'issued')
+    );
+  END IF;
+
+  INSERT INTO public.invoice_projects (invoice_id, project_id, amount)
+  SELECT target_invoice_id, item.project_id, item.amount
+    FROM jsonb_to_recordset(p_projects) AS item(project_id uuid, amount numeric(14,2))
+  ON CONFLICT (invoice_id, project_id)
+  DO UPDATE SET amount = EXCLUDED.amount
+    WHERE public.invoice_projects.amount IS DISTINCT FROM EXCLUDED.amount;
+
+  DELETE FROM public.invoice_projects line
+   WHERE line.invoice_id = target_invoice_id
+     AND NOT EXISTS (
+       SELECT 1 FROM jsonb_to_recordset(p_projects)
+         AS item(project_id uuid, amount numeric(14,2))
+        WHERE item.project_id = line.project_id
+     );
+
+  RETURN target_invoice_id;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.save_credit_note_with_projects(
   p_credit_note jsonb,
   p_projects jsonb
 )
 RETURNS uuid
 LANGUAGE plpgsql
-SET search_path = public
+SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   target_credit_note_id uuid := coalesce((p_credit_note ->> 'id')::uuid, gen_random_uuid());
@@ -698,18 +888,24 @@ $$;
 CREATE OR REPLACE FUNCTION public.cancel_credit_note(p_credit_note_id uuid)
 RETURNS void
 LANGUAGE plpgsql
-SET search_path = public
+SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
+DECLARE
+  target_invoice_id uuid;
 BEGIN
   IF NOT public.has_role(auth.uid(), 'admin') THEN
     RAISE EXCEPTION 'Solo un administrador puede anular notas de crédito'
       USING ERRCODE = '42501';
   END IF;
 
-  PERFORM 1
-    FROM public.credit_notes
-   WHERE id = p_credit_note_id
-   FOR UPDATE;
+  SELECT invoice_id INTO target_invoice_id
+    FROM public.credit_notes WHERE id = p_credit_note_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Nota de crédito inexistente' USING ERRCODE = '23503';
+  END IF;
+  PERFORM 1 FROM public.invoices WHERE id = target_invoice_id FOR UPDATE;
+  PERFORM 1 FROM public.credit_notes WHERE id = p_credit_note_id FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Nota de crédito inexistente' USING ERRCODE = '23503';
@@ -821,10 +1017,10 @@ SELECT invoice.id AS invoice_id,
 
 REVOKE ALL ON public.credit_notes FROM PUBLIC, anon;
 REVOKE ALL ON public.credit_note_projects FROM PUBLIC, anon;
-GRANT SELECT, INSERT, UPDATE ON public.credit_notes TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.credit_note_projects TO authenticated;
-GRANT ALL ON public.credit_notes TO service_role;
-GRANT ALL ON public.credit_note_projects TO service_role;
+-- Direct note writes would take a row lock before the invoice lock.
+-- Financial writes must use the admin-checked RPCs in invoice -> note order.
+REVOKE ALL ON public.credit_notes, public.credit_note_projects FROM authenticated, service_role;
+GRANT SELECT ON public.credit_notes, public.credit_note_projects TO authenticated, service_role;
 
 ALTER TABLE public.credit_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.credit_note_projects ENABLE ROW LEVEL SECURITY;

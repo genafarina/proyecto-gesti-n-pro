@@ -287,16 +287,14 @@ export function validateInvoiceProjectBreakdown(
   }
 
   const normalized = projects.map((project) => {
-    const amount = Math.round(numberValue(project.amount) * 100) / 100;
+    const amount = moneyCents(project.amount) / 100;
     if (!project.project_id || amount <= 0) {
       throw new Error("Cada proyecto debe tener un importe mayor a cero.");
     }
     return { project_id: project.project_id, amount };
   });
-  const distributed = Math.round(
-    normalized.reduce((sum, project) => sum + project.amount, 0) * 100,
-  );
-  const total = Math.round(totalAmount * 100);
+  const distributed = normalized.reduce((sum, project) => sum + moneyCents(project.amount), 0);
+  const total = moneyCents(totalAmount);
   if (distributed !== total) {
     throw new Error("La suma por proyecto debe coincidir exactamente con el total de la factura.");
   }
@@ -308,16 +306,79 @@ export function validateCreditNoteProjectBreakdown(
   totalAmount: number,
   availableByProject: Record<string, number>,
 ) {
-  const normalized = validateInvoiceProjectBreakdown(projects, totalAmount);
+  const normalized = validateInvoiceProjectBreakdown(positiveCreditProjects(projects), totalAmount);
   normalized.forEach((project) => {
     if (!(project.project_id in availableByProject)) {
       throw new Error("Cada proyecto de la nota debe integrar la factura seleccionada.");
     }
-    if (project.amount > availableByProject[project.project_id]) {
+    if (moneyCents(project.amount) > moneyCents(availableByProject[project.project_id])) {
       throw new Error("El importe acreditado supera el disponible del proyecto en la factura.");
     }
   });
   return normalized;
+}
+
+/** Parse decimal money without accumulating binary floating-point fractions. */
+export function moneyCents(value: number | string | null | undefined): number {
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  if (!/^-?\d+(\.\d*)?$/.test(text)) throw new Error("El importe debe tener hasta dos decimales.");
+  const negative = text.startsWith("-");
+  const [whole, fraction = ""] = text.replace("-", "").split(".");
+  const cents =
+    Number(whole) * 100 +
+    Number(fraction.padEnd(2, "0").slice(0, 2)) +
+    (Number(fraction[2] ?? "0") >= 5 ? 1 : 0);
+  if (!Number.isSafeInteger(cents)) throw new Error("Importe fuera de rango.");
+  return negative ? -cents : cents;
+}
+
+type CreditProjectInput = { project_id: string; amount: number | string };
+
+export function positiveCreditProjects(projects: CreditProjectInput[]) {
+  return projects.filter((line) => {
+    const cents = moneyCents(line.amount);
+    if (cents < 0) throw new Error("El descuento no puede ser negativo.");
+    return cents > 0;
+  });
+}
+
+export function setCreditProjectAmount(
+  projects: CreditProjectInput[],
+  projectId: string,
+  amount: string,
+) {
+  if (!/^\d{0,12}(\.\d{0,2})?$/.test(amount)) return projects;
+  return [
+    ...projects.filter((line) => line.project_id !== projectId),
+    { project_id: projectId, amount },
+  ];
+}
+
+// Before the additive migration, these views still expose the original totals.
+// Preserve them rather than interpreting absent accounting columns as zero.
+export function normalizeInvoiceBalance(row: InvoiceBalance): InvoiceBalance {
+  return {
+    ...row,
+    gross_amount: row.gross_amount ?? row.total_amount,
+    credit_note_amount: row.credit_note_amount ?? 0,
+    net_billed_amount: row.net_billed_amount ?? row.total_amount,
+    credit_balance: row.credit_balance ?? 0,
+  };
+}
+
+export function normalizeInvoiceProjectBalance(row: InvoiceProjectBalance): InvoiceProjectBalance {
+  return {
+    ...row,
+    project_gross_amount: row.project_gross_amount ?? row.project_amount,
+    credit_note_amount: row.credit_note_amount ?? 0,
+    net_billed_amount: row.net_billed_amount ?? row.project_amount,
+    credit_balance: row.credit_balance ?? 0,
+  };
+}
+
+export function isMissingCreditNoteSchema(error: { code?: string }) {
+  return ["42703", "42P01", "PGRST204", "PGRST205"].includes(error.code ?? "");
 }
 
 export async function openSignedPdf(
@@ -355,36 +416,46 @@ export function buildCurrencyFinancialSummary(
 
   return [...currencies].sort().map<CurrencyFinancialSummary>((currency) => ({
     currency,
-    contracted: projects
-      .filter((project) => project.currency === currency)
-      .reduce((sum, project) => sum + numberValue(project.contracted_amount), 0),
-    grossInvoiced: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.total_amount), 0),
-    creditNotes: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.credit_note_amount), 0),
-    netInvoiced: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.net_billed_amount), 0),
-    invoiced: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.net_billed_amount), 0),
-    collected: collections
-      .filter((collection) => collection.currency === currency)
-      .reduce((sum, collection) => sum + numberValue(collection.amount), 0),
-    allocated: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.allocated_amount), 0),
-    invoiceBalance: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.balance_due), 0),
-    customerCredit: invoices
-      .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
-      .reduce((sum, invoice) => sum + numberValue(invoice.credit_balance), 0),
-    unallocated: collections
-      .filter((collection) => collection.currency === currency)
-      .reduce((sum, collection) => sum + numberValue(collection.unallocated_amount), 0),
+    contracted:
+      projects
+        .filter((project) => project.currency === currency)
+        .reduce((sum, project) => sum + moneyCents(project.contracted_amount), 0) / 100,
+    grossInvoiced:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.total_amount), 0) / 100,
+    creditNotes:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.credit_note_amount), 0) / 100,
+    netInvoiced:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.net_billed_amount), 0) / 100,
+    invoiced:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.net_billed_amount), 0) / 100,
+    collected:
+      collections
+        .filter((collection) => collection.currency === currency)
+        .reduce((sum, collection) => sum + moneyCents(collection.amount), 0) / 100,
+    allocated:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.allocated_amount), 0) / 100,
+    invoiceBalance:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.balance_due), 0) / 100,
+    customerCredit:
+      invoices
+        .filter((invoice) => invoice.currency === currency && invoice.status !== "cancelled")
+        .reduce((sum, invoice) => sum + moneyCents(invoice.credit_balance), 0) / 100,
+    unallocated:
+      collections
+        .filter((collection) => collection.currency === currency)
+        .reduce((sum, collection) => sum + moneyCents(collection.unallocated_amount), 0) / 100,
   }));
 }
 

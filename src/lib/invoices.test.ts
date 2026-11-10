@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCurrencyFinancialSummary,
   calculateInvoiceTotal,
+  moneyCents,
+  positiveCreditProjects,
+  setCreditProjectAmount,
+  normalizeInvoiceBalance,
+  normalizeInvoiceProjectBalance,
+  isMissingCreditNoteSchema,
   filterCreditNotes,
   filterInvoices,
   formatInvoiceNumber,
@@ -402,5 +408,49 @@ describe("facturación manual", () => {
       ),
     ).rejects.toThrow("sin permiso");
     expect(events).toEqual(["signed", "navigate:https://signed.example.test/invoice.pdf"]);
+  });
+});
+
+describe("credit note audit regressions", () => {
+  test("100,10 + 200,20 coinciden exactamente en centavos", () => {
+    expect(moneyCents("100.10") + moneyCents("200.20")).toBe(moneyCents("300.30"));
+    expect(moneyCents("1000") - moneyCents("100.10") - moneyCents("200.20")).toBe(69970);
+  });
+  test("acepta solo un proyecto afectado y elimina líneas vacías o cero", () => {
+    expect(
+      validateCreditNoteProjectBreakdown(
+        [
+          { project_id: "p1", amount: "100.10" },
+          { project_id: "p2", amount: "" },
+          { project_id: "p3", amount: 0 },
+        ],
+        100.1,
+        { p1: 100.1, p2: 200, p3: 200 },
+      ),
+    ).toEqual([{ project_id: "p1", amount: 100.1 }]);
+    expect(() => positiveCreditProjects([{ project_id: "p1", amount: -1 }])).toThrow();
+  });
+  test("permite agregar y quitar proyectos al editar", () => {
+    let lines = [{ project_id: "p1", amount: "100" }];
+    lines = setCreditProjectAmount(lines, "p2", "200");
+    lines = setCreditProjectAmount(lines, "p1", "");
+    expect(positiveCreditProjects(lines)).toEqual([{ project_id: "p2", amount: "200" }]);
+  });
+  test("conserva totales y saldos del esquema anterior", () => {
+    const old = invoice();
+    delete (old as Partial<InvoiceBalance>).gross_amount;
+    delete (old as Partial<InvoiceBalance>).net_billed_amount;
+    delete (old as Partial<InvoiceBalance>).credit_note_amount;
+    delete (old as Partial<InvoiceBalance>).credit_balance;
+    const normalized = normalizeInvoiceBalance(old);
+    const [summary] = buildCurrencyFinancialSummary([], [normalized], []);
+    expect(summary.grossInvoiced).toBe(1000);
+    expect(summary.netInvoiced).toBe(1000);
+    expect(summary.invoiceBalance).toBe(1000);
+    const project = invoiceProject();
+    delete (project as Partial<InvoiceProjectBalance>).project_gross_amount;
+    expect(normalizeInvoiceProjectBalance(project).project_gross_amount).toBe(600);
+    expect(isMissingCreditNoteSchema({ code: "42703" })).toBe(true);
+    expect(isMissingCreditNoteSchema({ code: "42501" })).toBe(false);
   });
 });

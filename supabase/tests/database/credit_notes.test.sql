@@ -3,7 +3,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(41);
+SELECT plan(56);
 
 SELECT has_table('public', 'credit_notes', 'credit_notes existe');
 SELECT has_table('public', 'credit_note_projects', 'credit_note_projects existe');
@@ -142,6 +142,7 @@ SELECT throws_matching(
   'credit_notes_document_unique_idx',
   'evita duplicados aunque cambien los ceros iniciales'
 );
+RESET ROLE;
 SELECT throws_matching(
   $$
     INSERT INTO public.credit_notes (
@@ -156,6 +157,7 @@ SELECT throws_matching(
   'mismo cliente',
   'impide vincular una nota con otro cliente'
 );
+SET LOCAL ROLE authenticated;
 
 INSERT INTO public.invoices (
   id, client_id, project_id, document_type, point_of_sale, invoice_number,
@@ -242,7 +244,7 @@ SELECT throws_matching(
       'C', '00005', '00000100', '2026-11-10', 10, 'ARS', 'Sin permiso'
     )
   $$,
-  '(Factura inexistente|row-level security)',
+  'permission denied',
   'un usuario sin rol admin no puede crear notas'
 );
 SELECT throws_matching(
@@ -276,6 +278,96 @@ RESET ROLE;
 SELECT throws_matching($$DELETE FROM public.credit_notes WHERE id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeee52'$$, 'se anulan y no se eliminan', 'conserva la trazabilidad e impide borrar notas');
 SELECT throws_matching($$UPDATE public.credit_notes SET reason = 'Cambio inválido' WHERE id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeee52'$$, 'anulada es inmutable', 'una nota anulada es inmutable');
 
+RESET ROLE;
+
+
+-- Force pending checks: ROLLBACK alone never runs deferred constraint triggers.
+SELECT lives_ok($$SET CONSTRAINTS ALL IMMEDIATE$$, 'ejecuta las restricciones diferidas acumuladas');
+SET CONSTRAINTS ALL DEFERRED;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', true);
+
+SELECT lives_ok($$
+  SELECT public.save_invoice_with_projects(
+    (SELECT to_jsonb(i) || '{"notes":"Observaciones con notas activas"}'::jsonb
+       FROM public.invoices i WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddd51'),
+    (SELECT jsonb_agg(jsonb_build_object('project_id',project_id,'amount',amount))
+       FROM public.invoice_projects WHERE invoice_id = 'dddddddd-dddd-dddd-dddd-dddddddddd51'));
+  SET CONSTRAINTS ALL IMMEDIATE;
+$$, 'edita observaciones de factura con notas activas y anuladas');
+SET CONSTRAINTS ALL DEFERRED;
+
+SELECT lives_ok($$
+  SELECT public.save_credit_note_with_projects(
+    '{"id":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeee58","invoice_id":"dddddddd-dddd-dddd-dddd-dddddddddd51","document_type":"C","point_of_sale":"00005","credit_note_number":"00000008","issue_date":"2026-11-10","amount":300.30,"reason":"Decimales","pdf_path":null}',
+    '[{"project_id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb51","amount":100.10},{"project_id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb52","amount":200.20}]');
+  SET CONSTRAINTS ALL IMMEDIATE;
+$$, 'acepta 100.10 + 200.20 = 300.30 con restricciones reales');
+SET CONSTRAINTS ALL DEFERRED;
+
+SELECT lives_ok($$
+  SELECT public.save_credit_note_with_projects(
+    '{"id":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeee58","invoice_id":"dddddddd-dddd-dddd-dddd-dddddddddd51","document_type":"C","point_of_sale":"00005","credit_note_number":"00000008","issue_date":"2026-11-10","amount":300.30,"reason":"Solo un proyecto","pdf_path":null}',
+    '[{"project_id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb51","amount":300.30}]');
+  SET CONSTRAINTS ALL IMMEDIATE;
+$$, 'edita la nota retirando un proyecto afectado');
+SET CONSTRAINTS ALL DEFERRED;
+
+SELECT is((SELECT net_billed_amount FROM public.invoice_balances WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddd51'), 449.70::numeric, 'conserva el saldo decimal acumulado');
+
+SELECT throws_matching($$
+  SELECT public.save_credit_note_with_projects(
+    '{"id":"eeeeeeee-eeee-eeee-eeee-eeeeeeeeee59","invoice_id":"dddddddd-dddd-dddd-dddd-dddddddddd51","document_type":"C","point_of_sale":"00005","credit_note_number":"00000009","issue_date":"2026-11-10","amount":200,"reason":"Exceso por proyecto","pdf_path":null}',
+    '[{"project_id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb51","amount":200}]');
+  SET CONSTRAINTS ALL IMMEDIATE;
+$$, 'superan el importe original de un proyecto', 'la restricción diferida impide exceder un proyecto aunque haya saldo global');
+
+SELECT throws_matching($$
+  DO $test$
+  BEGIN
+    INSERT INTO public.credit_notes (id,invoice_id,client_id,document_type,point_of_sale,credit_note_number,issue_date,amount,reason)
+    VALUES ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeee59','dddddddd-dddd-dddd-dddd-dddddddddd51','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa51','C','5','9','2026-11-10',10,'Sin desglose');
+    SET CONSTRAINTS ALL IMMEDIATE;
+  END $test$;
+$$, 'permission denied', 'incluso admin debe usar la RPC para escribir notas');
+
+RESET ROLE;
+SELECT throws_matching($$
+  DO $test$
+  BEGIN
+    INSERT INTO public.credit_notes (id,invoice_id,client_id,document_type,point_of_sale,credit_note_number,issue_date,amount,reason)
+    VALUES ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeee59','dddddddd-dddd-dddd-dddd-dddddddddd51','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa51','C','5','9','2026-11-10',10,'Sin desglose');
+    SET CONSTRAINTS ALL IMMEDIATE;
+  END $test$;
+$$, 'al menos en un proyecto', 'el trigger diferido impide confirmar una nota sin distribución');
+SELECT is((SELECT sum(amount) FROM public.project_collections), 1000::numeric, 'los cobros históricos no cambian con las ediciones');
+
+SELECT lives_ok($$
+  UPDATE public.invoices SET pdf_path =
+    '55555555-5555-5555-5555-555555555555/credit-notes/eeeeeeee-eeee-eeee-eeee-eeeeeeeeee51/nota.pdf'
+   WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddd51';
+  SELECT public.save_credit_note_with_projects(
+    (SELECT to_jsonb(n) || '{"pdf_path":null}'::jsonb FROM public.credit_notes n
+      WHERE id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeee51'),
+    (SELECT jsonb_agg(jsonb_build_object('project_id',project_id,'amount',amount))
+       FROM public.credit_note_projects WHERE credit_note_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeee51'));
+  SET CONSTRAINTS ALL IMMEDIATE;
+$$, 'desvincula PDF de nota compartido con una factura sin borrar el objeto');
+SET CONSTRAINTS ALL DEFERRED;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', true);
+SELECT is((SELECT count(*)::integer FROM storage.objects WHERE name =
+  '55555555-5555-5555-5555-555555555555/credit-notes/eeeeeeee-eeee-eeee-eeee-eeeeeeeeee51/nota.pdf'),
+  1, 'el PDF compartido sigue accesible para la factura');
+SELECT is(has_function_privilege('anon','public.save_credit_note_with_projects(jsonb,jsonb)','EXECUTE'),
+  false, 'anon no puede ejecutar la RPC financiera');
+SELECT is(has_table_privilege('authenticated','public.credit_note_projects','UPDATE'),
+  false, 'las distribuciones no pueden escribirse por fuera de la RPC');
+SELECT throws_matching($$SELECT public.cancel_credit_note('eeeeeeee-eeee-eeee-eeee-eeeeeeeeee51')$$,
+  'Solo un administrador', 'viewer no puede anular por RPC');
+SELECT is((SELECT jsonb_array_length(previous_projects) FROM public.credit_note_revisions
+  WHERE credit_note_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeee58'),
+  2, 'conserva los dos proyectos del desglose anterior de la nota editada');
 RESET ROLE;
 
 SELECT * FROM finish();
