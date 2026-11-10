@@ -47,6 +47,27 @@ export const maskDateInput = (value: string) => {
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 };
 
+/** Converts a date selected in the calendar to a civil ISO date using local parts only. */
+export const calendarDateToIso = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+/** Converts a civil ISO date to the local Date object required by the calendar widget. */
+export const isoDateToCalendarDate = (value: string | null | undefined) => {
+  if (!value) return undefined;
+
+  const match = ISO_DATE_PATTERN.exec(value.slice(0, 10));
+  if (!match) return undefined;
+
+  const [, year, month, day] = match;
+  if (!isValidDateParts(Number(year), Number(month), Number(day))) return undefined;
+
+  return new Date(Number(year), Number(month) - 1, Number(day), 12);
+};
+
 /** Returns today's local calendar date without a UTC conversion. */
 export const todayIsoDate = (now = new Date()) => {
   const year = now.getFullYear();
