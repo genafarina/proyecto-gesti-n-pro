@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +19,7 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatARS, formatDate, totalSpent } from "@/lib/finance";
 import { expenseCategoryLabel, paymentMethodLabel } from "@/lib/labels";
+import { todayIsoDate } from "@/lib/dates";
 
 export const Route = createFileRoute("/_authenticated/gastos")({ component: GastosPage });
 
@@ -106,7 +108,7 @@ function GastosPage() {
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setEditing(null); }}>
           <DialogTrigger asChild>
             <Button size="sm" onClick={() => setEditing({
-              expense_date: new Date().toISOString().slice(0, 10),
+              expense_date: todayIsoDate(),
               category: "materials", payment_method: "cash", amount: 0,
               project_id: proj !== "all" ? proj : undefined,
             })}><Plus className="h-4 w-4 mr-1" />Nuevo gasto</Button>
@@ -201,7 +203,7 @@ export function ExpenseForm({
           </Field>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Fecha *"><Input type="date" value={x.expense_date ?? ""} onChange={(e) => set("expense_date", e.target.value)} required /></Field>
+          <Field label="Fecha *"><DateInput value={x.expense_date} onChange={(value) => set("expense_date", value)} required /></Field>
           <Field label="Monto *"><Input type="number" min={0} step="0.01" value={String(x.amount ?? 0)} onChange={(e) => set("amount", e.target.value)} required /></Field>
           <Field label="Categoría *">
             <Select value={x.category ?? "other"} onValueChange={(v) => set("category", v)}>

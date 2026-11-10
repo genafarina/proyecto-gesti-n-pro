@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,6 +21,7 @@ import { toast } from "sonner";
 import { formatARS, formatDate, totalCollected } from "@/lib/finance";
 import { paymentMethodLabel } from "@/lib/labels";
 import { formatInvoiceNumber, type InvoiceBalance } from "@/lib/invoices";
+import { todayIsoDate } from "@/lib/dates";
 
 export const Route = createFileRoute("/_authenticated/cobros")({ component: CobrosPage });
 
@@ -144,7 +146,7 @@ function CobrosPage() {
             <Button size="sm" onClick={() => {
               const preProj = proj !== "all" ? projMap[proj] : undefined;
               setEditing({
-                collection_date: new Date().toISOString().slice(0, 10),
+                collection_date: todayIsoDate(),
                 payment_method: "bank_transfer", amount: 0,
                 project_id: preProj?.id, client_id: preProj?.client_id,
               });
@@ -268,7 +270,7 @@ export function CollectionForm({
           </Field>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Fecha *"><Input type="date" value={c.collection_date ?? ""} onChange={(e) => set("collection_date", e.target.value)} required /></Field>
+          <Field label="Fecha *"><DateInput value={c.collection_date} onChange={(value) => set("collection_date", value)} required /></Field>
           <Field label="Monto *"><Input type="number" min={0} step="0.01" value={String(c.amount ?? 0)} onChange={(e) => set("amount", e.target.value)} required /></Field>
           <Field label="Método de pago *">
             <Select value={c.payment_method ?? "bank_transfer"} onValueChange={(v) => set("payment_method", v)}>

@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -32,6 +33,7 @@ import {
   stageStatusLabel, expenseCategoryLabel, paymentMethodLabel,
 } from "@/lib/labels";
 import { cn } from "@/lib/utils";
+import { todayIsoDate } from "@/lib/dates";
 
 export const Route = createFileRoute("/_authenticated/proyectos_/$id")({
   component: ProjectDetail,
@@ -420,8 +422,8 @@ function TasksSection({ projectId, tasks, stages }: { projectId: string; tasks: 
                       </Select>
                     </Field>
                     <Field label="Avance %"><Input type="number" min={0} max={100} step="1" value={String(editing.progress_percentage ?? 0)} onChange={(e) => setEditing({ ...editing, progress_percentage: e.target.value })} /></Field>
-                    <Field label="Fin previsto"><Input type="date" value={editing.planned_end_date ?? ""} onChange={(e) => setEditing({ ...editing, planned_end_date: e.target.value })} /></Field>
-                    <Field label="Fin real"><Input type="date" value={editing.actual_end_date ?? ""} onChange={(e) => setEditing({ ...editing, actual_end_date: e.target.value })} /></Field>
+                    <Field label="Fin previsto"><DateInput value={editing.planned_end_date} onChange={(value) => setEditing({ ...editing, planned_end_date: value })} /></Field>
+                    <Field label="Fin real"><DateInput value={editing.actual_end_date} onChange={(value) => setEditing({ ...editing, actual_end_date: value })} /></Field>
                   </div>
                   <Field label="Descripción"><Textarea rows={2} value={editing.description ?? ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
                   <DialogFooter><Button type="submit" disabled={save.isPending}>Guardar</Button></DialogFooter>
@@ -527,7 +529,7 @@ function ExpensesSection({ projectId, expenses, currency }: { projectId: string;
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setEditing(null); }}>
           <DialogTrigger asChild>
             <Button size="sm" onClick={() => setEditing({
-              project_id: projectId, expense_date: new Date().toISOString().slice(0, 10),
+              project_id: projectId, expense_date: todayIsoDate(),
               category: "materials", payment_method: "cash", amount: 0,
             })}><Plus className="h-4 w-4 mr-1" />Agregar gasto</Button>
           </DialogTrigger>
@@ -636,7 +638,7 @@ function CollectionsSection({ projectId, clientId, collections, currency }: { pr
           <DialogTrigger asChild>
             <Button size="sm" onClick={() => setEditing({
               project_id: projectId, client_id: clientId,
-              collection_date: new Date().toISOString().slice(0, 10),
+              collection_date: todayIsoDate(),
               payment_method: "bank_transfer", amount: 0,
             })}><Plus className="h-4 w-4 mr-1" />Agregar cobro</Button>
           </DialogTrigger>

@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -42,6 +43,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { formatARS, formatDate } from "@/lib/finance";
+import { todayIsoDate } from "@/lib/dates";
 import {
   calculateInvoiceTotal,
   filterInvoices,
@@ -101,7 +103,7 @@ const initialFilters: InvoiceFilters = {
   number: "",
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayIsoDate;
 
 function InvoicesPage() {
   const queryClient = useQueryClient();
@@ -508,21 +510,15 @@ function InvoicesPage() {
                 <SelectItem value="cancelled">Anuladas</SelectItem>
               </SelectContent>
             </Select>
-            <Input
-              type="date"
-              aria-label="Fecha desde"
+            <DateInput
+              aria-label="Fecha desde (DD/MM/AAAA)"
               value={filters.from}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, from: event.target.value }))
-              }
+              onChange={(value) => setFilters((current) => ({ ...current, from: value }))}
             />
-            <Input
-              type="date"
-              aria-label="Fecha hasta"
+            <DateInput
+              aria-label="Fecha hasta (DD/MM/AAAA)"
               value={filters.to}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, to: event.target.value }))
-              }
+              onChange={(value) => setFilters((current) => ({ ...current, to: value }))}
             />
             <Input
               placeholder="N.º de factura"
@@ -946,19 +942,14 @@ function InvoiceForm({
             </Field>
           </div>
           <Field label="Fecha de emisión *">
-            <Input
-              type="date"
-              value={draft.issue_date ?? ""}
-              onChange={(event) => set("issue_date", event.target.value)}
+            <DateInput
+              value={draft.issue_date}
+              onChange={(value) => set("issue_date", value)}
               required
             />
           </Field>
           <Field label="Fecha de vencimiento">
-            <Input
-              type="date"
-              value={draft.due_date ?? ""}
-              onChange={(event) => set("due_date", event.target.value)}
-            />
+            <DateInput value={draft.due_date} onChange={(value) => set("due_date", value)} />
           </Field>
           <Field label="Importe neto (opcional)">
             <Input
