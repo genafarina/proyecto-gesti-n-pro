@@ -2,7 +2,7 @@
 
 Workflow: **Supabase TEST - migrate and validate**.
 Archivo: .github/workflows/supabase-test-migrations.yml.
-CLI fijada: 2.54.11. Destino único: ovtahbpcpifsrlrpapkx.
+CLI fijada: 2.54.11. Destino único: ovtahpbcpifsrlrpapkx.
 
 ## Configuración manual en GitHub
 
@@ -13,9 +13,9 @@ CLI fijada: 2.54.11. Destino único: ovtahbpcpifsrlrpapkx.
    variable pública ni una clave service_role. No pegarlo en issues, PRs o logs.
 4. Copiar la conexión de Supabase TEST → Connect. Usar conexión directa o Session
    Pooler, base postgres, puerto 5432; contraseña percent-encoded. El host directo
-   debe ser db.ovtahbpcpifsrlrpapkx.supabase.co y el usuario postgres. En Session
+   debe ser db.ovtahpbcpifsrlrpapkx.supabase.co y el usuario postgres. En Session
    Pooler el host debe ser el aws-…pooler.supabase.com indicado por Supabase y el
-   usuario postgres.ovtahbpcpifsrlrpapkx. Se exige TLS y se rechaza Production.
+   usuario postgres.ovtahpbcpifsrlrpapkx. Se exige TLS y se rechaza Production.
 
 No se necesita SUPABASE_ACCESS_TOKEN: la conexión es explícita y no se usa link.
 Si la base tiene restricciones IP, autorizar una salida de runner controlada;
@@ -47,7 +47,7 @@ Cuando la definición ya esté registrada en la rama predeterminada:
 gh workflow run supabase-test-migrations.yml \
   --repo genafarina/proyecto-gesti-n-pro \
   --ref feature/credit-notes \
-  -f confirmation=ovtahbpcpifsrlrpapkx
+  -f confirmation=ovtahpbcpifsrlrpapkx
 ```
 
 Alternativa: Actions → Supabase TEST - migrate and validate → Run workflow →

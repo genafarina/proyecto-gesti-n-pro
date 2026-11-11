@@ -40,7 +40,7 @@ def summary(message):
             out.write(message + "\n\n")
 
 
-def run(label, args, env, sql=None):
+def run(label, args, env, sql=None, *, stdout_only=False):
     # All tool output stays in memory: errors may repeat passwords, rows or URIs.
     try:
         result = subprocess.run(args, input=sql, text=True, capture_output=True,
@@ -50,7 +50,7 @@ def run(label, args, env, sql=None):
     if result.returncode:
         raise RuntimeError(f"{label}: failed; raw diagnostics suppressed.")
     summary(f"PASS: {label}")
-    return result.stdout + result.stderr
+    return result.stdout if stdout_only else result.stdout + result.stderr
 
 
 def main():
@@ -86,9 +86,11 @@ SELECT format('SELECT CASE WHEN count(*) = 0 THEN %L ELSE %L END FROM public.%I;
     if "HAS_USERS" in output or "HAS_ROWS" in output:
         raise RuntimeError("TEST contains users or business records; stop and use a fresh empty test project.")
     cli = ["supabase"]
-    version = run("Pinned CLI version", cli + ["--version"], env).strip()
-    if not re.search(r"(?m)^2\.54\.11\s*$", version):
+    # Update notices go to stderr and are not part of the installed version.
+    version = run("Read CLI version", cli + ["--version"], env, stdout_only=True).strip()
+    if version != "2.54.11":
         raise RuntimeError("Unexpected Supabase CLI version.")
+    summary("Verified installed Supabase CLI: 2.54.11")
     # Ensure TLS even when the supplied URI omitted sslmode. No link/default target.
     target = raw if uri.query else raw + "?sslmode=require"
     run("Pending migration history", cli + ["migration", "list", "--db-url", target], env)

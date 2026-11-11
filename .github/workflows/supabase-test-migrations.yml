@@ -17,11 +17,17 @@ concurrency:
 
 jobs:
   migrate-test:
-    if: github.repository == 'genafarina/proyecto-gesti-n-pro' && github.ref == 'refs/heads/feature/credit-notes' && inputs.confirmation == 'ovtahpbcpifsrlrpapkx'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: supabase-test
     steps:
+      - name: Require exact TEST branch and confirmation
+        env:
+          TEST_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$GITHUB_REPOSITORY" = 'genafarina/proyecto-gesti-n-pro'
+          test "$GITHUB_REF" = 'refs/heads/feature/credit-notes'
+          test "$TEST_CONFIRMATION" = 'ovtahpbcpifsrlrpapkx'
       - uses: actions/checkout@v6
         with:
           persist-credentials: false

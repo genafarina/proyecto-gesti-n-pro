@@ -12,6 +12,11 @@ spec.loader.exec_module(runner)
 
 
 class DestinationGuardTests(unittest.TestCase):
+    def test_version_uses_stdout_and_ignores_update_notices(self):
+        result = subprocess.CompletedProcess([], 0, "2.54.11\n", "New CLI available: 9.0.0")
+        with patch.object(runner.subprocess, "run", return_value=result), redirect_stdout(io.StringIO()):
+            self.assertEqual(runner.run("Version", ["supabase", "--version"], {}, stdout_only=True).strip(), "2.54.11")
+
     def test_failed_tool_diagnostics_never_reach_logs(self):
         output = io.StringIO()
         result = subprocess.CompletedProcess([], 1, "sensitive-uri", "sensitive-password")
@@ -22,16 +27,16 @@ class DestinationGuardTests(unittest.TestCase):
 
     def test_accepts_only_expected_project(self):
         for uri in [
-            "postgresql://postgres:dummy@db.ovtahbpcpifsrlrpapkx.supabase.co:5432/postgres",
-            "postgres://postgres.ovtahbpcpifsrlrpapkx:dummy@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require",
+            "postgresql://postgres:dummy@db.ovtahpbcpifsrlrpapkx.supabase.co:5432/postgres",
+            "postgres://postgres.ovtahpbcpifsrlrpapkx:dummy@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require",
         ]:
             runner.validate_uri(uri)
 
     def test_rejects_unsafe_destinations_and_overrides(self):
-        base = "postgresql://postgres:dummy@db.ovtahbpcpifsrlrpapkx.supabase.co:5432/postgres"
+        base = "postgresql://postgres:dummy@db.ovtahpbcpifsrlrpapkx.supabase.co:5432/postgres"
         invalid = [
-            "", base.replace("ovtahbpcpifsrlrpapkx", "psftlbjupejzgnvqqcpp"),
-            base.replace("ovtahbpcpifsrlrpapkx", "anotherproject"),
+            "", base.replace("ovtahpbcpifsrlrpapkx", "psftlbjupejzgnvqqcpp"),
+            base.replace("ovtahpbcpifsrlrpapkx", "anotherproject"),
             base.replace(".supabase.co", ".supabase.co.attacker.test"),
             base + "?sslmode=disable", base + "?host=other.example", base + "#fragment",
             base + "?host=", base + "?sslmode=", base + "?sslmode=require&host=",
