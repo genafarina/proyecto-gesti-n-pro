@@ -87,7 +87,7 @@ SELECT format('SELECT CASE WHEN count(*) = 0 THEN %L ELSE %L END FROM public.%I;
         raise RuntimeError("TEST contains users or business records; stop and use a fresh empty test project.")
     cli = ["supabase"]
     version = run("Pinned CLI version", cli + ["--version"], env).strip()
-    if not re.search(r"(?m)^2\\.54\\.11\\s*$", version):
+    if not re.search(r"(?m)^2\.54\.11\s*$", version):
         raise RuntimeError("Unexpected Supabase CLI version.")
     # Ensure TLS even when the supplied URI omitted sslmode. No link/default target.
     target = raw if uri.query else raw + "?sslmode=require"
