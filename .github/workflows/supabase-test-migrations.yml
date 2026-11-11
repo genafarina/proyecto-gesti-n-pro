@@ -1,0 +1,43 @@
+name: Supabase TEST - migrate and validate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type ovtahbpcpifsrlrpapkx to confirm the TEST project'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-test-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate-test:
+    if: github.repository == 'genafarina/proyecto-gesti-n-pro' && github.ref == 'refs/heads/feature/credit-notes' && inputs.confirmation == 'ovtahbpcpifsrlrpapkx'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: supabase-test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require audited corrections
+        run: git merge-base --is-ancestor 5e4b6ff HEAD
+      - name: Validate secret destination offline
+        env:
+          SUPABASE_TEST_DB_URL: ${{ secrets.SUPABASE_TEST_DB_URL }}
+        run: python3 scripts/supabase-test-migrations.py --validate-only
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.54.11
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+      - name: Inspect, simulate, migrate and validate TEST
+        env:
+          SUPABASE_TEST_DB_URL: ${{ secrets.SUPABASE_TEST_DB_URL }}
+        run: python3 scripts/supabase-test-migrations.py
