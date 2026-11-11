@@ -7,7 +7,7 @@ import subprocess
 import sys
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-TEST_REF = "ovtahbpcpifsrlrpapkx"
+TEST_REF = "ovtahpbcpifsrlrpapkx"
 PRODUCTION_REF = "psftlbjupejzgnvqqcpp"
 
 
