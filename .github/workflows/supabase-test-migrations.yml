@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'Type ovtahbpcpifsrlrpapkx to confirm the TEST project'
+        description: 'Type ovtahpbcpifsrlrpapkx to confirm the TEST project'
         required: true
         type: string
 
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   migrate-test:
-    if: github.repository == 'genafarina/proyecto-gesti-n-pro' && github.ref == 'refs/heads/feature/credit-notes' && inputs.confirmation == 'ovtahbpcpifsrlrpapkx'
+    if: github.repository == 'genafarina/proyecto-gesti-n-pro' && github.ref == 'refs/heads/feature/credit-notes' && inputs.confirmation == 'ovtahpbcpifsrlrpapkx'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: supabase-test
