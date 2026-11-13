@@ -1,3 +1,4 @@
+import { useCreditNoteSchema } from "@/components/invoices/use-credit-note-schema";
 import { createFileRoute } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -41,6 +42,7 @@ import {
 } from "@/lib/dashboardFinance";
 import {
   buildCurrencyFinancialSummary,
+  normalizeInvoiceBalance,
   type CollectionAllocationSummary,
   type InvoiceBalance,
 } from "@/lib/invoices";
@@ -78,6 +80,7 @@ const periodLabel: Record<DashboardPeriod, string> = {
 };
 
 function Dashboard() {
+  const creditSchema = useCreditNoteSchema();
   const [period, setPeriod] = useState<DashboardPeriod>("this_month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -129,7 +132,9 @@ function Dashboard() {
         expenses: expenses.data ?? [],
         collections: collections.data ?? [],
         generalExpenses: generalExpenses.data ?? [],
-        invoices: (invoices.data ?? []) as unknown as InvoiceBalance[],
+        invoices: ((invoices.data ?? []) as unknown as InvoiceBalance[]).map(
+          normalizeInvoiceBalance,
+        ),
         allocationSummary: (allocationSummary.data ??
           []) as unknown as CollectionAllocationSummary[],
       };
@@ -375,9 +380,23 @@ function Dashboard() {
                 />
                 <KpiCard
                   icon={FileText}
-                  label="Total facturado"
-                  value={formatARS(summary.invoiced, summary.currency)}
+                  label={creditSchema.data === true ? "Facturación bruta" : "Total facturado"}
+                  value={formatARS(summary.grossInvoiced, summary.currency)}
                 />
+                {creditSchema.data === true && (
+                  <KpiCard
+                    icon={Receipt}
+                    label="Notas de crédito"
+                    value={formatARS(summary.creditNotes, summary.currency)}
+                  />
+                )}
+                {creditSchema.data === true && (
+                  <KpiCard
+                    icon={FileText}
+                    label="Facturación neta"
+                    value={formatARS(summary.netInvoiced, summary.currency)}
+                  />
+                )}
                 <KpiCard
                   icon={Banknote}
                   label="Total cobrado"
@@ -396,11 +415,19 @@ function Dashboard() {
                   value={formatARS(summary.unallocated, summary.currency)}
                   detail="Anticipos o cobros aún sin factura"
                 />
+                {creditSchema.data === true && (
+                  <KpiCard
+                    icon={WalletCards}
+                    label="Crédito a favor / a devolver"
+                    value={formatARS(summary.customerCredit, summary.currency)}
+                    tone={summary.customerCredit > 0 ? "warn" : undefined}
+                  />
+                )}
                 <KpiCard
                   icon={CircleDollarSign}
                   label="Contrato sin facturar"
                   value={formatARS(
-                    Math.max(summary.contracted - summary.invoiced, 0),
+                    Math.max(summary.contracted - summary.netInvoiced, 0),
                     summary.currency,
                   )}
                   detail="Diferente del saldo pendiente de facturas"
