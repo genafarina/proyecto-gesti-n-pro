@@ -1,3 +1,5 @@
+import { FinancialFilterFrame } from "@/components/finance/FinancialFilters";
+import { financialPeriodLabels as periodLabel } from "@/lib/financialFilters";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -92,15 +94,6 @@ export const Route = createFileRoute("/_authenticated/gastos-generales")({
   component: GeneralExpensesPage,
 });
 
-const periodLabel: Record<GeneralExpenseFilters["period"], string> = {
-  this_month: "Este mes",
-  previous_month: "Mes anterior",
-  last_3_months: "Últimos 3 meses",
-  this_year: "Este año",
-  custom: "Rango personalizado",
-  all: "Todos",
-};
-
 const chartConfig = {
   amount: {
     label: "Monto",
@@ -155,7 +148,10 @@ function GeneralExpensesPage() {
     () => Object.fromEntries(accounts.map((account) => [account.id, account.name])),
     [accounts],
   );
-  const filtered = useMemo(() => filterGeneralExpenses(expenses, filters), [expenses, filters]);
+  const filtered = useMemo(
+    () => filterGeneralExpenses(expenses, filters, accountNames),
+    [expenses, filters, accountNames],
+  );
 
   const totals = useMemo(() => {
     const topCategory = getTopGeneralExpenseCategory(filtered);
@@ -355,6 +351,10 @@ function GeneralExpensesPage() {
         </div>
       </div>
 
+      <p className="text-sm text-muted-foreground">
+        KPIs, gráficos y exportación corresponden a los registros filtrados. Los importes excluyen
+        anulados.
+      </p>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <KpiCard
           icon={CircleDollarSign}
@@ -386,115 +386,110 @@ function GeneralExpensesPage() {
         />
       </section>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">Filtros</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => setFilters(initialFilters)}>
-              Restablecer
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <Filter label="Período">
-            <Select
-              value={filters.period}
-              onValueChange={(value) =>
-                updateFilter("period", value as GeneralExpenseFilters["period"])
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(periodLabel).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Filter>
-          {filters.period === "custom" && (
-            <>
-              <Filter label="Desde">
-                <DateInput
-                  value={filters.customFrom}
-                  onChange={(value) => updateFilter("customFrom", value)}
-                />
-              </Filter>
-              <Filter label="Hasta">
-                <DateInput
-                  value={filters.customTo}
-                  onChange={(value) => updateFilter("customTo", value)}
-                />
-              </Filter>
-            </>
-          )}
-          <Filter label="Categoría">
-            <FilterSelect
-              value={filters.category}
-              allLabel="Todas las categorías"
-              options={generalExpenseCategoryLabel}
-              onChange={(value) => updateFilter("category", value)}
-            />
-          </Filter>
-          <Filter label="Tipo de gasto">
-            <FilterSelect
-              value={filters.expenseType}
-              allLabel="Todos los tipos"
-              options={generalExpenseTypeLabel}
-              onChange={(value) => updateFilter("expenseType", value)}
-            />
-          </Filter>
-          <Filter label="Estado">
-            <FilterSelect
-              value={filters.status}
-              allLabel="Todos los estados"
-              options={generalExpenseStatusLabel}
-              onChange={(value) => updateFilter("status", value)}
-            />
-          </Filter>
-          <Filter label="Método de pago">
-            <FilterSelect
-              value={filters.paymentMethod}
-              allLabel="Todos los métodos"
-              options={paymentMethodLabel}
-              onChange={(value) => updateFilter("paymentMethod", value)}
-            />
-          </Filter>
-          <Filter label="Cuenta de pago">
-            <Select
-              value={filters.paymentAccountId}
-              onValueChange={(value) => updateFilter("paymentAccountId", value)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas las cuentas</SelectItem>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.name}
-                    {account.active ? "" : " (inactiva)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Filter>
-          <Filter label="Buscar">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Proveedor o descripción"
-                value={filters.search}
-                onChange={(event) => updateFilter("search", event.target.value)}
+      <FinancialFilterFrame
+        count={filtered.length}
+        onClear={() =>
+          setFilters({ ...initialFilters, period: "all", customFrom: "", customTo: "" })
+        }
+      >
+        <Filter label="Período">
+          <Select
+            value={filters.period}
+            onValueChange={(value) =>
+              updateFilter("period", value as GeneralExpenseFilters["period"])
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(periodLabel).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Filter>
+        {filters.period === "custom" && (
+          <>
+            <Filter label="Desde">
+              <DateInput
+                value={filters.customFrom}
+                onChange={(value) => updateFilter("customFrom", value)}
               />
-            </div>
-          </Filter>
-        </CardContent>
-      </Card>
+            </Filter>
+            <Filter label="Hasta">
+              <DateInput
+                value={filters.customTo}
+                onChange={(value) => updateFilter("customTo", value)}
+              />
+            </Filter>
+          </>
+        )}
+        <Filter label="Categoría">
+          <FilterSelect
+            value={filters.category}
+            allLabel="Todas las categorías"
+            options={generalExpenseCategoryLabel}
+            onChange={(value) => updateFilter("category", value)}
+          />
+        </Filter>
+        <Filter label="Tipo de gasto">
+          <FilterSelect
+            value={filters.expenseType}
+            allLabel="Todos los tipos"
+            options={generalExpenseTypeLabel}
+            onChange={(value) => updateFilter("expenseType", value)}
+          />
+        </Filter>
+        <Filter label="Estado">
+          <FilterSelect
+            value={filters.status}
+            allLabel="Todos los estados"
+            options={generalExpenseStatusLabel}
+            onChange={(value) => updateFilter("status", value)}
+          />
+        </Filter>
+        <Filter label="Método de pago">
+          <FilterSelect
+            value={filters.paymentMethod}
+            allLabel="Todos los métodos"
+            options={paymentMethodLabel}
+            onChange={(value) => updateFilter("paymentMethod", value)}
+          />
+        </Filter>
+        <Filter label="Cuenta de pago">
+          <Select
+            value={filters.paymentAccountId}
+            onValueChange={(value) => updateFilter("paymentAccountId", value)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las cuentas</SelectItem>
+              {accounts.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.name}
+                  {account.active ? "" : " (inactiva)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Filter>
+        <Filter label="Buscar">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Proveedor, descripción, cuenta u observaciones"
+              value={filters.search}
+              onChange={(event) => updateFilter("search", event.target.value)}
+            />
+          </div>
+        </Filter>
+      </FinancialFilterFrame>
 
       <Card>
         <CardHeader>

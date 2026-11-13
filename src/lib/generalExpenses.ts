@@ -1,3 +1,4 @@
+import { matchesFinancialSearch } from "./financialSearch";
 import type { Enums } from "@/integrations/supabase/types";
 
 // Shared calculations keep filters, KPIs, charts, and exports consistent.
@@ -86,19 +87,16 @@ export function getGeneralExpensePeriodRange(
   return { from: dateKey(from), to: dateKey(to) };
 }
 
-const searchable = (value: string | null | undefined) =>
-  (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-export function filterGeneralExpenses(expenses: GeneralExpense[], filters: GeneralExpenseFilters) {
+export function filterGeneralExpenses(
+  expenses: GeneralExpense[],
+  filters: GeneralExpenseFilters,
+  accountNames: Record<string, string> = {},
+) {
   const { from, to } = getGeneralExpensePeriodRange(
     filters.period,
     filters.customFrom,
     filters.customTo,
   );
-  const query = searchable(filters.search.trim());
 
   return expenses.filter((expense) => {
     if (from && expense.expense_date < from) return false;
@@ -114,9 +112,13 @@ export function filterGeneralExpenses(expenses: GeneralExpense[], filters: Gener
     )
       return false;
     if (
-      query &&
-      !searchable(expense.payee).includes(query) &&
-      !searchable(expense.description).includes(query)
+      !matchesFinancialSearch(filters.search, [
+        expense.payee,
+        expense.description,
+        expense.notes,
+        expense.other_payment_account_detail,
+        accountNames[expense.payment_account_id],
+      ])
     )
       return false;
     return true;

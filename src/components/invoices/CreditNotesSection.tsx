@@ -1,3 +1,9 @@
+import { FinancialFilters } from "@/components/finance/FinancialFilters";
+import {
+  filterFinancialRows,
+  initialFinancialFilters,
+  type FinancialFiltersValue,
+} from "@/lib/financialFilters";
 import { useMemo, useState } from "react";
 import { Ban, Eye, FileText, Pencil, Plus } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -50,13 +56,11 @@ import {
   moneyCents,
   positiveCreditProjects,
   setCreditProjectAmount,
-  filterCreditNotes,
   formatInvoiceNumber,
   invoiceDocumentTypeLabel,
   openSignedPdf,
   validateCreditNoteProjectBreakdown,
   type CreditNote,
-  type CreditNoteFilters,
   type CreditNoteProject,
   type InvoiceBalance,
   type InvoiceProjectBalance,
@@ -67,14 +71,6 @@ type ClientOption = { id: string; name: string };
 
 type CreditNoteDraft = Partial<CreditNote> & {
   project_allocations: { project_id: string; amount: number | string }[];
-};
-
-const initialFilters: CreditNoteFilters = {
-  clientId: "all",
-  projectId: "all",
-  from: "",
-  to: "",
-  invoice: "",
 };
 
 export function CreditNotesSection({
@@ -95,7 +91,14 @@ export function CreditNotesSection({
   onChanged: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [filters, setFilters] = useState(initialFilters);
+  const [filters, setFilters] = useState<FinancialFiltersValue>({
+    ...initialFinancialFilters,
+    clientId: "all",
+    projectId: "all",
+    status: "all",
+    documentType: "all",
+    invoiceId: "all",
+  });
   const [editing, setEditing] = useState<CreditNoteDraft | null>(null);
   const [viewing, setViewing] = useState<CreditNote | null>(null);
   const [toCancel, setToCancel] = useState<CreditNote | null>(null);
@@ -137,8 +140,34 @@ export function CreditNotesSection({
       ? projects
       : projects.filter((project) => project.client_id === filters.clientId);
   const filtered = useMemo(
-    () => filterCreditNotes(creditNotes, creditNoteProjects, invoices, filters),
-    [creditNoteProjects, creditNotes, filters, invoices],
+    () =>
+      filterFinancialRows(creditNotes, filters, (note) => {
+        const invoice = invoiceMap[note.invoice_id];
+        const projects = (noteProjectsByNote[note.id] ?? []).map(
+          (line) => projectMap[line.project_id],
+        );
+        return {
+          date: note.issue_date,
+          fields: {
+            clientId: note.client_id,
+            projectId: (noteProjectsByNote[note.id] ?? []).map((line) => line.project_id),
+            status: note.status,
+            documentType: note.document_type,
+            invoiceId: note.invoice_id,
+          },
+          search: [
+            note.credit_note_number,
+            formatInvoiceNumber(note.point_of_sale, note.credit_note_number),
+            note.reason,
+            clientMap[note.client_id],
+            invoice?.concept,
+            invoice?.invoice_number,
+            invoice && formatInvoiceNumber(invoice.point_of_sale, invoice.invoice_number),
+            ...projects.flatMap((p) => [p?.code, p?.name]),
+          ],
+        };
+      }),
+    [creditNotes, filters, invoiceMap, noteProjectsByNote, projectMap, clientMap],
   );
   const eligibleInvoices = invoices.filter(
     (invoice) => invoice.currency === "ARS" && invoice.status === "issued",
@@ -308,59 +337,46 @@ export function CreditNotesSection({
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-5">
-          <Select
-            value={filters.clientId}
-            onValueChange={(clientId) =>
-              setFilters((current) => ({ ...current, clientId, projectId: "all" }))
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Cliente" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los clientes</SelectItem>
-              {clients.map((client) => (
-                <SelectItem key={client.id} value={client.id}>
-                  {client.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={filters.projectId}
-            onValueChange={(projectId) => setFilters((current) => ({ ...current, projectId }))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Proyecto" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los proyectos</SelectItem>
-              {filteredProjects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.code} — {project.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DateInput
-            aria-label="Notas desde"
-            value={filters.from}
-            onChange={(from) => setFilters((current) => ({ ...current, from }))}
-          />
-          <DateInput
-            aria-label="Notas hasta"
-            value={filters.to}
-            onChange={(to) => setFilters((current) => ({ ...current, to }))}
-          />
-          <Input
-            placeholder="N.º de factura"
-            value={filters.invoice}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, invoice: event.target.value }))
-            }
-          />
-        </div>
+        <FinancialFilters
+          value={filters}
+          onChange={setFilters}
+          count={filtered.length}
+          fields={[
+            { key: "clientId", label: "Cliente", options: clientMap },
+            {
+              key: "projectId",
+              label: "Proyecto",
+              options: Object.fromEntries(
+                filteredProjects.map((p) => [p.id, p.code + " — " + p.name]),
+              ),
+            },
+            { key: "status", label: "Estado", options: creditNoteStatusLabel },
+            {
+              key: "documentType",
+              label: "Tipo de comprobante",
+              options: Object.fromEntries(
+                ["A", "B", "C", "E", "M", "OTHER"].map((type) => [
+                  type,
+                  type === "OTHER" ? "Otro" : type,
+                ]),
+              ),
+            },
+            {
+              key: "invoiceId",
+              label: "Factura vinculada",
+              options: Object.fromEntries(
+                invoices
+                  .filter((i) => filters.clientId === "all" || i.client_id === filters.clientId)
+                  .map((i) => [
+                    i.id,
+                    formatInvoiceNumber(i.point_of_sale, i.invoice_number) +
+                      " · " +
+                      (clientMap[i.client_id] ?? ""),
+                  ]),
+              ),
+            },
+          ]}
+        />
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
