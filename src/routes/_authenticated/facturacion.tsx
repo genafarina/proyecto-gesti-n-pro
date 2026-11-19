@@ -1,3 +1,9 @@
+import { FinancialFilters } from "@/components/finance/FinancialFilters";
+import {
+  filterFinancialRows,
+  initialFinancialFilters,
+  type FinancialFiltersValue,
+} from "@/lib/financialFilters";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -50,7 +56,6 @@ import {
   calculateInvoiceTotal,
   normalizeInvoiceBalance,
   normalizeInvoiceProjectBalance,
-  filterInvoices,
   formatInvoiceNumber,
   invoiceDocumentTypeLabel,
   invoicePaymentStatusLabel,
@@ -64,7 +69,6 @@ import {
   type CreditNoteProject,
   type CurrencyCode,
   type InvoiceBalance,
-  type InvoiceFilters,
   type InvoiceProjectBalance,
 } from "@/lib/invoices";
 import { paymentMethodLabel } from "@/lib/labels";
@@ -100,21 +104,20 @@ type InvoiceDraft = Partial<InvoiceBalance> & {
   project_allocations: { project_id: string; amount: number | string }[];
 };
 
-const initialFilters: InvoiceFilters = {
-  clientId: "all",
-  projectId: "all",
-  status: "all",
-  from: "",
-  to: "",
-  number: "",
-};
-
 const today = todayIsoDate;
 
 function InvoicesPage() {
   const queryClient = useQueryClient();
   const schema = useCreditNoteSchema();
-  const [filters, setFilters] = useState(initialFilters);
+  const [filters, setFilters] = useState<FinancialFiltersValue>({
+    ...initialFinancialFilters,
+    clientId: "all",
+    projectId: "all",
+    status: "all",
+    currency: "all",
+    documentType: "all",
+    paymentStatus: "all",
+  });
   const [editing, setEditing] = useState<InvoiceDraft | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [removePdf, setRemovePdf] = useState(false);
@@ -238,7 +241,32 @@ function InvoicesPage() {
     });
     return grouped;
   }, [invoiceProjects]);
-  const filtered = useMemo(() => filterInvoices(invoices, filters), [filters, invoices]);
+  const filtered = useMemo(
+    () =>
+      filterFinancialRows(invoices, filters, (invoice) => ({
+        date: invoice.issue_date,
+        fields: {
+          clientId: invoice.client_id,
+          projectId: invoice.project_ids,
+          status: invoice.status,
+          currency: invoice.currency,
+          documentType: invoice.document_type,
+          paymentStatus: invoice.status === "cancelled" ? undefined : invoice.payment_status,
+        },
+        search: [
+          invoice.concept,
+          invoice.notes,
+          invoice.invoice_number,
+          formatInvoiceNumber(invoice.point_of_sale, invoice.invoice_number),
+          clientMap[invoice.client_id],
+          ...(invoice.project_ids ?? []).flatMap((id) => [
+            projectMap[id]?.code,
+            projectMap[id]?.name,
+          ]),
+        ],
+      })),
+    [filters, invoices, clientMap, projectMap],
+  );
   const filteredProjects = useMemo(
     () =>
       filters.clientId === "all"
@@ -494,73 +522,29 @@ function InvoicesPage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-            <Select
-              value={filters.clientId}
-              onValueChange={(value) =>
-                setFilters((current) => ({ ...current, clientId: value, projectId: "all" }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los clientes</SelectItem>
-                {clients.map((client) => (
-                  <SelectItem key={client.id} value={client.id}>
-                    {client.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filters.projectId}
-              onValueChange={(value) => setFilters((current) => ({ ...current, projectId: value }))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Proyecto" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los proyectos</SelectItem>
-                {filteredProjects.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {project.code} — {project.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={filters.status}
-              onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                <SelectItem value="issued">Emitidas</SelectItem>
-                <SelectItem value="cancelled">Anuladas</SelectItem>
-              </SelectContent>
-            </Select>
-            <DateInput
-              aria-label="Fecha desde (DD/MM/AAAA)"
-              value={filters.from}
-              onChange={(value) => setFilters((current) => ({ ...current, from: value }))}
-            />
-            <DateInput
-              aria-label="Fecha hasta (DD/MM/AAAA)"
-              value={filters.to}
-              onChange={(value) => setFilters((current) => ({ ...current, to: value }))}
-            />
-            <Input
-              placeholder="N.º de factura"
-              value={filters.number}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, number: event.target.value }))
-              }
-            />
-          </div>
-
+          <FinancialFilters
+            value={filters}
+            onChange={setFilters}
+            count={filtered.length}
+            fields={[
+              { key: "clientId", label: "Cliente", options: clientMap },
+              {
+                key: "projectId",
+                label: "Proyecto",
+                options: Object.fromEntries(
+                  filteredProjects.map((p) => [p.id, p.code + " — " + p.name]),
+                ),
+              },
+              { key: "status", label: "Estado", options: invoiceStatusLabel },
+              { key: "paymentStatus", label: "Cobranza", options: invoicePaymentStatusLabel },
+              {
+                key: "documentType",
+                label: "Tipo de comprobante",
+                options: invoiceDocumentTypeLabel,
+              },
+              { key: "currency", label: "Moneda", options: { ARS: "ARS", USD: "USD" } },
+            ]}
+          />
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
