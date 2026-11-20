@@ -109,7 +109,7 @@ describe("observación de operaciones de datos", () => {
     const cache = client.getMutationCache();
     const good = cache.build(client, { mutationFn: () => goodRequest.promise }).execute(undefined);
     const bad = cache.build(client, { mutationFn: () => badRequest.promise }).execute(undefined);
-    const failed = expect(bad).rejects.toThrow("write failed");
+    const failed = bad.catch((error: unknown) => error);
 
     if (successFirst) {
       goodRequest.resolve("saved");
@@ -118,7 +118,7 @@ describe("observación de operaciones de datos", () => {
     }
 
     badRequest.reject(new Error("write failed"));
-    await failed;
+    expect(await failed).toEqual(new Error("write failed"));
     expect(status()).toMatchObject({ pending: !successFirst, failedWrites: 1 });
 
     if (!successFirst) {
