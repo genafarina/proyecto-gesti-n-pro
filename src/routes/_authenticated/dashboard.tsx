@@ -144,7 +144,8 @@ function Dashboard() {
   const { data: clientMap } = useQuery({
     queryKey: ["client-names"],
     queryFn: async () => {
-      const { data } = await supabase.from("clients").select("id,name");
+      const { data, error } = await supabase.from("clients").select("id,name");
+      if (error) throw error;
       return Object.fromEntries((data ?? []).map((c) => [c.id, c.name])) as Record<string, string>;
     },
   });

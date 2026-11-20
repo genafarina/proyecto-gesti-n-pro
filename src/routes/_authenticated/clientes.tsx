@@ -51,7 +51,8 @@ function ClientesPage() {
   const { data: projectCounts } = useQuery({
     queryKey: ["client-project-counts"],
     queryFn: async () => {
-      const { data } = await supabase.from("projects").select("client_id");
+      const { data, error } = await supabase.from("projects").select("client_id");
+      if (error) throw error;
       const counts: Record<string, number> = {};
       (data ?? []).forEach((p) => { counts[p.client_id] = (counts[p.client_id] ?? 0) + 1; });
       return counts;

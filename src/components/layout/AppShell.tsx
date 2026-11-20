@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DataSyncStatus } from "@/components/layout/DataSyncStatus";
 import { cn } from "@/lib/utils";
 import type { User } from "@supabase/supabase-js";
 
@@ -130,7 +131,7 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-14 w-full items-center gap-3 border-b bg-card px-4">
+        <header className="sticky top-0 z-20 flex min-h-14 w-full items-center gap-3 border-b bg-card px-4 py-1">
           <Button
             variant="ghost"
             size="icon"
@@ -139,7 +140,8 @@ export function AppShell({
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <h1 className="text-base font-semibold">{title}</h1>
+          <h1 className="min-w-0 truncate text-base font-semibold">{title}</h1>
+          <DataSyncStatus />
         </header>
         <main className="flex-1 p-4 md:p-6 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>

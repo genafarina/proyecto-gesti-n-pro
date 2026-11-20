@@ -72,35 +72,40 @@ function ProjectDetail() {
     queryKey: ["project-client", project?.client_id],
     enabled: !!project?.client_id,
     queryFn: async () => {
-      const { data } = await supabase.from("clients").select("*").eq("id", project!.client_id).single();
+      const { data, error } = await supabase.from("clients").select("*").eq("id", project!.client_id).single();
+      if (error) throw error;
       return data;
     },
   });
   const { data: stages = [] } = useQuery({
     queryKey: ["stages", id],
     queryFn: async () => {
-      const { data } = await supabase.from("project_stages").select("*").eq("project_id", id).order("order_index");
+      const { data, error } = await supabase.from("project_stages").select("*").eq("project_id", id).order("order_index");
+      if (error) throw error;
       return data ?? [];
     },
   });
   const { data: tasks = [] } = useQuery({
     queryKey: ["tasks", id],
     queryFn: async () => {
-      const { data } = await supabase.from("project_tasks").select("*").eq("project_id", id).order("created_at");
+      const { data, error } = await supabase.from("project_tasks").select("*").eq("project_id", id).order("created_at");
+      if (error) throw error;
       return data ?? [];
     },
   });
   const { data: expenses = [] } = useQuery({
     queryKey: ["expenses", id],
     queryFn: async () => {
-      const { data } = await supabase.from("project_expenses").select("*").eq("project_id", id).order("expense_date", { ascending: false });
+      const { data, error } = await supabase.from("project_expenses").select("*").eq("project_id", id).order("expense_date", { ascending: false });
+      if (error) throw error;
       return data ?? [];
     },
   });
   const { data: collections = [] } = useQuery({
     queryKey: ["collections", id],
     queryFn: async () => {
-      const { data } = await supabase.from("project_collections").select("*").eq("project_id", id).order("collection_date", { ascending: false });
+      const { data, error } = await supabase.from("project_collections").select("*").eq("project_id", id).order("collection_date", { ascending: false });
+      if (error) throw error;
       return data ?? [];
     },
   });
