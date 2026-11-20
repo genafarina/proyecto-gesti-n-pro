@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DataSyncStatus } from "@/components/layout/DataSyncStatus";
 import { cn } from "@/lib/utils";
 import type { User } from "@supabase/supabase-js";
 
@@ -91,6 +92,7 @@ export function AppShell({
         })}
       </nav>
       <div className="p-3 border-t border-sidebar-border space-y-2">
+        <DataSyncStatus />
         <div className="px-2 text-xs text-sidebar-foreground/60 truncate" title={user.email ?? ""}>
           {user.email}
         </div>
