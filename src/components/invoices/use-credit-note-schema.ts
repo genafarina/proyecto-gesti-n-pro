@@ -5,6 +5,7 @@ import { isMissingCreditNoteSchema } from "@/lib/invoices";
 export function useCreditNoteSchema() {
   return useQuery({
     queryKey: ["credit-note-schema"],
+    meta: { confirmsDataSync: false },
     retry: false,
     queryFn: async () => {
       // Explicit projections work even when the tables have no rows.

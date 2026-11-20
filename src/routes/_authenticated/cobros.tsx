@@ -89,24 +89,33 @@ function CobrosPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects-min"],
-    queryFn: async () =>
-      (await supabase.from("projects").select("id,name,code,currency,client_id").order("code"))
-        .data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("id,name,code,currency,client_id")
+        .order("code");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const { data: clients = [] } = useQuery({
     queryKey: ["clients-min"],
-    queryFn: async () =>
-      (await supabase.from("clients").select("id,name").order("name")).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("clients").select("id,name").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const { data: collections = [] } = useQuery({
     queryKey: ["all-collections"],
-    queryFn: async () =>
-      (
-        await supabase
-          .from("project_collections")
-          .select("*")
-          .order("collection_date", { ascending: false })
-      ).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_collections")
+        .select("*")
+        .order("collection_date", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const { data: allocations = [] } = useQuery({
     queryKey: ["invoice-allocations"],

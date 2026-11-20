@@ -64,14 +64,16 @@ function ProyectosPage() {
   const { data: clients = [] } = useQuery<ClientMin[]>({
     queryKey: ["clients-min"],
     queryFn: async () => {
-      const { data } = await supabase.from("clients").select("id,name,code,next_project_number").order("name");
+      const { data, error } = await supabase.from("clients").select("id,name,code,next_project_number").order("name");
+      if (error) throw error;
       return (data ?? []) as ClientMin[];
     },
   });
   const { data: tasks = [] } = useQuery({
     queryKey: ["all-tasks-progress"],
     queryFn: async () => {
-      const { data } = await supabase.from("project_tasks").select("project_id,progress_percentage,status,planned_end_date");
+      const { data, error } = await supabase.from("project_tasks").select("project_id,progress_percentage,status,planned_end_date");
+      if (error) throw error;
       return data ?? [];
     },
   });

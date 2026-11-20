@@ -1,93 +1,75 @@
-import { useEffect, useState } from "react";
-import { useIsFetching, useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
+import { observeDataSync, type DataSyncSnapshot } from "@/lib/dataSyncStatus";
 import { cn } from "@/lib/utils";
 
-type SyncState = "offline" | "syncing" | "error" | "synced";
-
-const SYNC_COPY: Record<SyncState, { label: string; dot: string }> = {
-  offline: {
-    label: "Supabase sin conexión",
-    dot: "bg-amber-500",
-  },
-  syncing: {
-    label: "Sincronizando con Supabase…",
-    dot: "animate-pulse bg-sky-400",
-  },
-  error: {
-    label: "Error de sincronización",
-    dot: "bg-destructive",
-  },
-  synced: {
-    label: "Datos sincronizados",
-    dot: "bg-emerald-500",
-  },
-};
-
 export function DataSyncStatus() {
-  const queryClient = useQueryClient();
-  const fetching = useIsFetching();
-  const mutating = useIsMutating();
-  const [online, setOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
-  const [hasError, setHasError] = useState(false);
+  const client = useQueryClient();
+  const monitor = useRef<ReturnType<typeof observeDataSync> | null>(null);
+  const [status, setStatus] = useState<DataSyncSnapshot>({
+    online: typeof navigator === "undefined" || navigator.onLine,
+    pending: false,
+    readFailed: false,
+    failedWrites: 0,
+    confirmed: null,
+  });
 
   useEffect(() => {
-    const updateErrorState = () => {
-      const queryFailed = queryClient
-        .getQueryCache()
-        .getAll()
-        .some((query) => query.state.status === "error");
-      let latestMutationStatus: string | undefined;
-      let latestMutationAt = -1;
-
-      for (const mutation of queryClient.getMutationCache().getAll()) {
-        if (mutation.state.submittedAt > latestMutationAt) {
-          latestMutationAt = mutation.state.submittedAt;
-          latestMutationStatus = mutation.state.status;
-        }
-      }
-
-      setHasError(queryFailed || latestMutationStatus === "error");
-    };
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
-    const unsubscribeQueries = queryClient.getQueryCache().subscribe(updateErrorState);
-    const unsubscribeMutations = queryClient.getMutationCache().subscribe(updateErrorState);
-
-    updateErrorState();
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
+    const observer = observeDataSync(client, navigator.onLine, setStatus);
+    monitor.current = observer;
+    const updateConnection = () => observer.setOnline(navigator.onLine);
+    window.addEventListener("online", updateConnection);
+    window.addEventListener("offline", updateConnection);
     return () => {
-      unsubscribeQueries();
-      unsubscribeMutations();
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", updateConnection);
+      window.removeEventListener("offline", updateConnection);
+      observer.stop();
+      monitor.current = null;
     };
-  }, [queryClient]);
+  }, [client]);
 
-  const state: SyncState = !online
-    ? "offline"
-    : fetching > 0 || mutating > 0
-      ? "syncing"
-      : hasError
-        ? "error"
-        : "synced";
-  const copy = SYNC_COPY[state];
+  const confirmation = status.confirmed === "write" ? "Escritura confirmada" : "Lectura confirmada";
+  const activity = status.pending ? "Operaciones pendientes" : null;
+  const syncLabel = status.confirmed ? confirmation : "Supabase sin verificar";
+  const error = status.readFailed || status.failedWrites > 0;
+  const writeWarning = status.failedWrites === 1
+    ? "1 escritura fallida"
+    : `${status.failedWrites} escrituras fallidas`;
+  const label = [
+    !status.online ? "Sin conexión del navegador" : null,
+    activity,
+    status.online && !activity && !error ? syncLabel : null,
+    status.readFailed ? "Error de lectura" : null,
+    status.failedWrites > 0 ? writeWarning : null,
+  ].filter(Boolean).join(" · ");
 
   return (
-    <div
-      className="flex items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 px-2.5 py-2 text-[11px] text-sidebar-foreground/75"
-      role="status"
-      aria-live="polite"
-      title="Estado de sincronización de datos con Supabase"
-    >
-      <span
-        className={cn("h-2 w-2 shrink-0 rounded-full", copy.dot)}
-        aria-hidden="true"
-      />
-      <span className="truncate">{copy.label}</span>
+    <div className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <div role="status" className="flex min-w-0 items-center gap-1.5" title={label}>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-2 shrink-0 rounded-full bg-muted-foreground",
+            error && "bg-destructive",
+            !error && !status.online && "bg-amber-500",
+            !error && status.online && status.pending && "motion-safe:animate-pulse bg-sky-500",
+            !error && status.online && !status.pending && status.confirmed && "bg-emerald-600",
+          )}
+        />
+        <span className="leading-tight">{label}</span>
+      </div>
+      {status.failedWrites > 0 && (
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 hover:bg-muted focus-visible:outline-2"
+          aria-label="Descartar avisos de escrituras fallidas"
+          title="Descartar avisos de escrituras fallidas"
+          onClick={() => monitor.current?.dismissWriteFailures()}
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }

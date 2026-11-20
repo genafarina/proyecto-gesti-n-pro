@@ -87,25 +87,34 @@ function GastosPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects-min"],
-    queryFn: async () =>
-      (await supabase.from("projects").select("id,name,code,currency,client_id").order("code"))
-        .data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("id,name,code,currency,client_id")
+        .order("code");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const { data: clients = [] } = useQuery({
     queryKey: ["clients-min"],
-    queryFn: async () =>
-      (await supabase.from("clients").select("id,name").order("name")).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("clients").select("id,name").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const clientMap = Object.fromEntries(clients.map((client) => [client.id, client.name]));
   const { data: expenses = [] } = useQuery({
     queryKey: ["all-expenses"],
-    queryFn: async () =>
-      (
-        await supabase
-          .from("project_expenses")
-          .select("*")
-          .order("expense_date", { ascending: false })
-      ).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_expenses")
+        .select("*")
+        .order("expense_date", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   const projMap = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects]);
