@@ -38,18 +38,17 @@ export function DataSyncStatus() {
         .getQueryCache()
         .getAll()
         .some((query) => query.state.status === "error");
-      const latestMutation = queryClient
-        .getMutationCache()
-        .getAll()
-        .reduce<(typeof queryClient extends never ? never : any) | undefined>(
-          (latest, mutation) =>
-            !latest || mutation.state.submittedAt > latest.state.submittedAt
-              ? mutation
-              : latest,
-          undefined,
-        );
+      let latestMutationStatus: string | undefined;
+      let latestMutationAt = -1;
 
-      setHasError(queryFailed || latestMutation?.state.status === "error");
+      for (const mutation of queryClient.getMutationCache().getAll()) {
+        if (mutation.state.submittedAt > latestMutationAt) {
+          latestMutationAt = mutation.state.submittedAt;
+          latestMutationStatus = mutation.state.status;
+        }
+      }
+
+      setHasError(queryFailed || latestMutationStatus === "error");
     };
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
